@@ -12,7 +12,8 @@ import argparse
 import signal
 import sys
 
-from sentinel.adapters.audio_mic import AudioMicSource, list_devices
+from sentinel.adapters import make_audio_source
+from sentinel.adapters.audio_mic import list_devices
 from sentinel.classify.yamnet import build_classifier_stage
 from sentinel.config import ConfigError, load_config
 from sentinel.metrics import CpuMeter, Metrics
@@ -29,6 +30,12 @@ def parse_device(value: str | None) -> str | int | None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", default=None)
+    parser.add_argument(
+        "--input",
+        choices=["mic", "glasses"],
+        default="mic",
+        help="audio input: mic is the external microphone (L1), glasses is L0",
+    )
     parser.add_argument("--device", default=None, help="sounddevice name or index")
     parser.add_argument(
         "--display", default=None, help="override display.adapter, e.g. console,sim"
@@ -58,12 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         stage = None if args.no_classifier else build_classifier_stage(cfg.classifier)
         metrics = Metrics()
-        source = AudioMicSource(
-            parse_device(args.device) if args.device else cfg.audio.device,
-            cfg.audio.frame_ms,
-            metrics=metrics,
+        source = make_audio_source(
+            cfg, args.input, parse_device(args.device) if args.device else None, metrics
         )
-    except (ConfigError, RuntimeError) as err:
+    except (ConfigError, RuntimeError, NotImplementedError) as err:
         print(err, file=sys.stderr)
         if runtime:
             runtime.close()
@@ -89,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     runtime.attach(pipeline)
     signal.signal(signal.SIGINT, lambda *_: pipeline.stop())
     cpu = CpuMeter()
-    print("Listening on the live microphone. Ctrl+C to stop. Assistive alert, not a safety device.")
+    print(f"Listening on the {args.input} input. Ctrl+C to stop.")
+    print("Sentinel is an assistive alert, not a certified safety device.")
     if runtime.url:
         print(f"Dashboard and simulator: {runtime.url}")
     if args.record:

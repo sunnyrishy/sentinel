@@ -55,6 +55,7 @@ class AudioFileSource:
         self._sleep = sleep
         self._clock = clock
         self._closed = False
+        self.started_at: float | None = None  # clock value when frames() began
 
     @property
     def duration_s(self) -> float:
@@ -62,6 +63,7 @@ class AudioFileSource:
 
     def frames(self) -> Iterator[AudioFrame]:
         start_wall = self._clock()
+        self.started_at = start_wall
         t0 = self._t0 if self._t0 is not None else start_wall
         for pos in range(0, len(self._audio), self._frame):
             if self._closed:

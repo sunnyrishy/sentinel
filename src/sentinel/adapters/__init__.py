@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from sentinel.adapters.base import MultiDisplay
@@ -36,13 +37,41 @@ def make_display(
         if n == "console":
             from sentinel.adapters.display_console import ConsoleDisplay
 
-            children.append(ConsoleDisplay(caps))
-        elif n == "sim":
+            # A text console cannot blink and must not emulate it with show and clear cycles.
+            children.append(ConsoleDisplay(replace(caps, supports_blink=True)))
+        elif n in ("sim", "bridge"):
             if publish is None:
-                raise ConfigError("display 'sim' needs the dashboard. Enable dashboard in config.")
-            from sentinel.adapters.display_sim import SimDisplay
+                raise ConfigError(f"display '{n}' needs the dashboard. Enable dashboard in config.")
+            if n == "sim":
+                from sentinel.adapters.display_sim import SimDisplay
 
-            children.append(SimDisplay(publish, caps))
-        else:
-            raise ConfigError(f"display adapter '{n}' is not available yet")
+                children.append(SimDisplay(publish, caps))
+            else:
+                from sentinel.adapters.display_bridge import BridgeDisplay
+
+                children.append(BridgeDisplay(publish, caps))
+        else:  # microlumin: a stub that raises NotImplementedError with a clear message
+            from sentinel.adapters.display_microlumin import MicroLuminDisplay
+
+            children.append(MicroLuminDisplay(caps))
     return children[0] if len(children) == 1 else MultiDisplay(children)
+
+
+def make_audio_source(
+    cfg: SentinelConfig,
+    kind: str = "mic",
+    device: str | int | None = None,
+    metrics: Any = None,
+) -> Any:
+    """Build the audio input. mic is the external microphone (L1). glasses is the L0 stub."""
+    if kind == "mic":
+        from sentinel.adapters.audio_mic import AudioMicSource
+
+        return AudioMicSource(
+            device if device is not None else cfg.audio.device, cfg.audio.frame_ms, metrics=metrics
+        )
+    if kind == "glasses":
+        from sentinel.adapters.audio_glasses import AudioGlassesSource
+
+        return AudioGlassesSource()
+    raise ConfigError(f"unknown input '{kind}'. Choose mic or glasses")

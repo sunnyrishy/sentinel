@@ -125,3 +125,18 @@ The sweep reads class scores at exact hop boundaries and applies the stage's hit
 
 ## D36. Python is fast enough (Nov 13)
 A full synthetic evaluation (55 scenarios, 2.3 hours of audio, gate and classifier) runs in 80 s and costs about 0.9% of one core. Gate processing latency is about 0.1 ms per event. No profiling or C++ port is needed on the laptop. This says nothing about a phone or other target device.
+
+## D37. Bridge adapter vs simulator adapter (Nov 13)
+Both publish the spec's `alert` and `clear` messages through the dashboard WebSocket hub, so the browser page and a phone bridge subscribe to the same `/ws`. The difference is capabilities: the simulator adapter blinks natively (`supports_blink` always true), while the bridge adapter uses `display.caps` exactly as configured. With the default caps (no native blink) the pipeline emulates blinking with show and clear cycles and the bridge payload says `blink: false`, so a subscriber never blinks twice. Use one of them at a time. When the bridge is active the browser simulator shows exactly what the bridge sends.
+
+## D38. Console display never emulates blink (Nov 13)
+`make_display` forces `supports_blink=True` for the console adapter. A text terminal cannot blink, and emulating it printed a line every half second.
+
+## D39. Stub behaviour (Nov 13)
+`AudioGlassesSource` and `MicroLuminDisplay` raise `NotImplementedError` with a message that says what to use instead and points at `docs/SDK_NOTES.md`. They are placed behind `--input glasses` and `--display microlumin`. The tools turn that exception into a one-line message and exit code 2, never a traceback. `hw_smoke_test.py` is the exception: with a stub it prints `SKIPPED: display adapter 'microlumin' is not implemented.` and exits 0, because the spec says it must exit cleanly.
+
+## D40. Latency probe design (Nov 13)
+`tools/latency_probe.py` plays a known tonal burst on a fixed schedule (1 s of silence, then bursts 3 s long at least 8 s apart) and prints wall-clock times for sound start, `show` called, `show` returned and `clear` called, plus the software alarm-to-display from the known sound start. `--mode simulate` feeds the probe straight into the pipeline (no hardware, software path only). `--mode live` plays it through the speaker with `sounddevice` while the microphone listens. True end-to-end latency to photons is read from slow-motion video, with instructions in the tool help. Live mode could not be run in the build container (no audio hardware).
+
+## D41. No new config keys for hardware (Nov 13)
+The audio input is chosen with `--input mic|glasses` and the display with `--display`. The config schema is unchanged, because the spec's `config/default.yaml` rejects unknown keys and every unknown already has a slot.
