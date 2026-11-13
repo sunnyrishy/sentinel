@@ -10,9 +10,11 @@ import sys
 
 import numpy as np
 
-from sentinel.adapters.audio_file import load_wav_16k
+from sentinel.adapters import make_display
+from sentinel.adapters.audio_file import AudioFileSource, load_wav_16k
 from sentinel.config import ConfigError, load_config
 from sentinel.gate.tonal import GateParams, GateState, process
+from sentinel.pipeline import Pipeline
 from sentinel.sim.scenario import load_scenario, render
 from sentinel.types import SAMPLE_RATE, Detection
 
@@ -56,6 +58,16 @@ def main(argv: list[str] | None = None) -> int:
             f"onset={d.t_onset:7.3f}s detect={d.t_detect:7.3f}s "
             f"alarm-to-detect={(d.t_detect - d.t_onset) * 1000:.0f} ms"
         )
+    print("Pipeline run (virtual clock, console display):")
+    pipeline = Pipeline(
+        cfg,
+        AudioFileSource(audio, cfg.audio.frame_ms, t0=0.0),
+        make_display(cfg),
+        on_latency=lambda e, p, a: print(
+            f"  {e}: processing {p:.1f} ms, alarm-to-display {a:.0f} ms"
+        ),
+    )
+    pipeline.run_sync()
     return 0
 
 
