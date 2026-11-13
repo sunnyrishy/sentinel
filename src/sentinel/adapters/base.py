@@ -71,9 +71,10 @@ class AsyncDisplay:
         self._put(("clear", event_id))
 
     def close(self) -> None:
-        self._stop.set()
+        """Process any queued commands, then stop the worker and close the adapter."""
         self._put(("stop", None))
-        self._thread.join(timeout=self._timeout + 0.5)
+        self._thread.join(timeout=self._timeout * 2 + 0.5)
+        self._stop.set()
         self._guarded(self._inner.close)
 
     # internals -----------------------------------------------------------------------------------

@@ -14,6 +14,7 @@ from sentinel.adapters import make_display
 from sentinel.adapters.audio_file import AudioFileSource, load_wav_16k
 from sentinel.classify.yamnet import YamnetClassifier, build_classifier_stage
 from sentinel.config import ConfigError, SentinelConfig, load_config
+from sentinel.eventlog import EventLog, format_events
 from sentinel.gate.tonal import GateParams, GateState, process
 from sentinel.pipeline import Pipeline
 from sentinel.sim.scenario import load_scenario, render
@@ -29,6 +30,10 @@ def replay_gate(audio: np.ndarray, params: GateParams, frame_ms: int = 32) -> li
         chunk = audio[pos : pos + step]
         out.extend(process(state, chunk, (pos + len(chunk)) / SAMPLE_RATE, params))
     return out
+
+
+def log_path(db: str | None, cfg: SentinelConfig) -> str:
+    return db or cfg.eventlog.path
 
 
 def print_scores(audio: np.ndarray, cfg: SentinelConfig, top: int = 3) -> None:
@@ -49,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("input", help="scenario .yaml or audio file")
     parser.add_argument("--config", default=None)
     parser.add_argument("--scores", action="store_true", help="print classifier scores per hop")
+    parser.add_argument("--db", default=None, help="event log path (default: config eventlog.path)")
     parser.add_argument("--no-classifier", action="store_true", help="gate only")
     args = parser.parse_args(argv)
     try:
@@ -57,10 +63,12 @@ def main(argv: list[str] | None = None) -> int:
             scenario = load_scenario(args.input)
             rendered = render(scenario)
             audio, label = rendered.audio, f"{rendered.origin.upper()} scenario '{rendered.name}'"
+            source_label = "synthetic" if rendered.origin == "synthetic" else "replay"
             for ev in rendered.truth:
                 print(f"truth  {ev.start_s:7.3f}s to {ev.end_s:7.3f}s  {ev.kind} -> {ev.label}")
         else:
             audio, label = load_wav_16k(args.input), f"recording '{args.input}'"
+            source_label = "replay"
     except ConfigError as err:
         print(err, file=sys.stderr)
         return 2
@@ -82,11 +90,13 @@ def main(argv: list[str] | None = None) -> int:
             f"alarm-to-detect={(d.t_detect - d.t_onset) * 1000:.0f} ms"
         )
     try:
-        None if args.no_classifier else build_classifier_stage(cfg.classifier)
+        stage = None if args.no_classifier else build_classifier_stage(cfg.classifier)
     except (ConfigError, RuntimeError) as err:
         print(err, file=sys.stderr)
         return 2
     print("Pipeline run (virtual clock, console display):")
+    log = EventLog(log_path(args.db, cfg))
+    before = log.count()
     pipeline = Pipeline(
         cfg,
         AudioFileSource(audio, cfg.audio.frame_ms, t0=0.0),
@@ -94,8 +104,14 @@ def main(argv: list[str] | None = None) -> int:
         on_latency=lambda e, p, a: print(
             f"  {e}: processing {p:.1f} ms, alarm-to-display {a:.0f} ms"
         ),
+        classifier=stage,
+        eventlog=log,
+        source_label=source_label,
     )
     pipeline.run_sync()
+    new = log.count() - before
+    print(f"Event log {log_path(args.db, cfg)}: {new} new event(s)")
+    print(format_events(log.list(limit=max(new, 0))))
     return 0
 
 

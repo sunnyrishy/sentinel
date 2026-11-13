@@ -1,4 +1,4 @@
-"""Wires source, ring buffer, detection stages, policy, display and metrics.
+"""Wires source, ring buffer, detection stages, policy, display, event log and metrics.
 
 Two execution modes share the same stage objects:
   * run():       threaded, wall-clock. Live microphone and real-time replay.
@@ -9,31 +9,32 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import itertools
 import queue
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 from sentinel.adapters.base import AsyncDisplay
 from sentinel.buffer import RingBuffer
 from sentinel.classify.yamnet import ClassifierStage
 from sentinel.config import SentinelConfig
+from sentinel.eventlog import AsyncEventLog, EventLog
 from sentinel.gate.tonal import GateParams, GateState, process
 from sentinel.metrics import Metrics
-from sentinel.recording import WavRecorder
-from sentinel.types import (
-    ALERT_WORDING,
-    SAMPLE_RATE,
-    Alert,
-    AlertClass,
-    AudioFrame,
-    AudioSource,
-    Detection,
-    DisplayAdapter,
+from sentinel.policy import (
+    Action,
+    ClearAlert,
+    CreateEvent,
+    Policy,
+    ShowAlert,
+    UpdateEvent,
 )
+from sentinel.recording import WavRecorder
+from sentinel.types import Alert, AudioFrame, AudioSource, Detection, DisplayAdapter
 
 Clock = Callable[[], float]
+Listener = Callable[[dict[str, Any]], None]
 
 
 class StreamClock:
@@ -88,21 +89,6 @@ class GateStage:
         return [dataclasses.replace(d, t_detect=now) for d in dets]
 
 
-def make_alert(
-    alert_class: AlertClass, event_id: str, cfg: SentinelConfig, blink: bool | None = None
-) -> Alert:
-    tier, line1, line2 = ALERT_WORDING[alert_class]
-    return Alert(
-        event_id=event_id,
-        alert_class=alert_class,
-        tier=tier,
-        line1=line1,
-        line2=line2,
-        blink=cfg.policy.blink if blink is None else blink,
-        ttl_s=cfg.policy.ttl_s,
-    )
-
-
 class Pipeline:
     def __init__(
         self,
@@ -114,6 +100,8 @@ class Pipeline:
         record: bool = False,
         on_detection: Callable[[Detection], None] | None = None,
         classifier: ClassifierStage | None = None,
+        eventlog: EventLog | None = None,
+        source_label: str = "live",
     ) -> None:
         self.cfg = cfg
         self.source = source
@@ -122,46 +110,116 @@ class Pipeline:
         self.metrics = metrics or Metrics()
         self.on_latency = on_latency
         self.on_detection = on_detection
+        self.source_label = source_label
+        self.eventlog = eventlog if eventlog is not None else EventLog(":memory:")
+        self._elog = AsyncEventLog(self.eventlog)
         self.ring = RingBuffer(cfg.buffer.seconds, cfg.audio.sample_rate)
         self.gate = GateStage(cfg) if cfg.gate.enabled else None
         self.classifier = classifier
+        self.policy = Policy(cfg.policy, cfg.gate.confirm_timeout_s, self.eventlog.next_id)
         self.clock: Clock = time.monotonic
+        self._config_hash = cfg.config_hash()
         self._recorder = (
             WavRecorder(cfg.recording.dir) if (record or cfg.recording.enabled) else None
         )
         self._stop = threading.Event()
-        self._ids = itertools.count(1)
-        self._pending: dict[str, Detection] = {}
-        self._last_shown: dict[AlertClass, float] = {}
-        self._active: tuple[str, float] | None = None  # (event_id, clear time)
+        self._natural_end = False
+        self._times: dict[str, tuple[float, float]] = {}  # event_id -> (t_onset, t_detect)
+        self._listeners: list[Listener] = []
         self._gate_q: queue.Queue[AudioFrame | None] = queue.Queue(maxsize=200)
         self._clf_q: queue.Queue[AudioFrame | None] = queue.Queue(maxsize=200)
         self._policy_q: queue.Queue[Detection | None] = queue.Queue()
 
-    # Interim alert handling. Replaced by the full policy state machine in M4. ------------------
+    def add_listener(self, callback: Listener) -> None:
+        """Receive WebSocket-protocol messages (alert, clear, event) as they happen."""
+        self._listeners.append(callback)
+
+    def _emit(self, message: dict[str, Any]) -> None:
+        for cb in self._listeners:
+            with contextlib.suppress(Exception):
+                cb(message)
+
+    # Policy output -> display, log, listeners -------------------------------------------------
     def _handle_detection(self, det: Detection) -> None:
         if self.on_detection:
             self.on_detection(det)
-        now = self.clock()
-        cool = self.cfg.policy.cooldown_s + self.cfg.policy.ttl_s
-        if now - self._last_shown.get(det.alert_class, -1e9) < cool:
-            return
-        event_id = f"e_{next(self._ids):06d}"
-        self._pending[event_id] = det
-        self._last_shown[det.alert_class] = now
-        self._active = (event_id, now + self.cfg.policy.ttl_s)
-        self.display.show(make_alert(det.alert_class, event_id, self.cfg))
+        self._apply(self.policy.on_detection(det, self.clock()))
 
     def _tick(self) -> None:
-        if self._active and self.clock() >= self._active[1]:
-            self.display.clear(self._active[0])
-            self._active = None
+        self._apply(self.policy.tick(self.clock()))
+
+    def _apply(self, actions: list[Action]) -> None:
+        for a in actions:
+            if isinstance(a, CreateEvent):
+                self._create(a)
+            elif isinstance(a, ShowAlert):
+                self.display.show(a.alert)
+                self._emit(
+                    {
+                        "type": "alert",
+                        "event_id": a.alert.event_id,
+                        "line1": a.alert.line1,
+                        "line2": a.alert.line2,
+                        "tier": a.alert.tier,
+                        "blink": a.alert.blink,
+                        "ttl_ms": int(a.alert.ttl_s * 1000),
+                    }
+                )
+            elif isinstance(a, UpdateEvent):
+                self._elog.update(a.event_id, **a.changes)
+                self._emit_event(a.event_id, a.changes)
+            elif isinstance(a, ClearAlert):
+                self.display.clear(a.event_id)
+                self._emit({"type": "clear", "event_id": a.event_id})
+
+    def _create(self, e: CreateEvent) -> None:
+        self._times[e.event_id] = (e.t_onset, e.t_detect)
+        self._elog.insert(
+            id=e.event_id,
+            alert_class=e.alert_class.value,
+            stage=e.stage,
+            score=e.score,
+            confirmed=e.confirmed,
+            cancel_reason=e.cancel_reason,
+            t_onset=e.t_onset,
+            t_detect=e.t_detect,
+            source=self.source_label,
+            config_hash=self._config_hash,
+        )
+        self._emit_event(
+            e.event_id,
+            {
+                "alert_class": e.alert_class.value,
+                "stage": e.stage,
+                "confirmed": e.confirmed,
+                "cancel_reason": e.cancel_reason,
+                "source": self.source_label,
+            },
+        )
+
+    def _emit_event(self, event_id: str, fields: dict[str, Any]) -> None:
+        self._emit({"type": "event", "event": {"id": event_id, **fields}})
 
     def _shown(self, event_id: str, t_display: float) -> None:
-        det = self._pending.get(event_id)
-        if det is None:
+        """Called when the display's show returned: record both latencies."""
+        times = self._times.get(event_id)
+        if times is None:
             return
-        s = self.metrics.record_latency(event_id, det.t_onset, det.t_detect, t_display)
+        t_onset, t_detect = times
+        s = self.metrics.record_latency(event_id, t_onset, t_detect, t_display)
+        self._elog.update(
+            event_id,
+            t_display=t_display,
+            processing_ms=s.processing_ms,
+            alarm_to_display_ms=s.alarm_to_display_ms,
+        )
+        self._emit_event(
+            event_id,
+            {
+                "processing_ms": round(s.processing_ms, 2),
+                "alarm_to_display_ms": round(s.alarm_to_display_ms, 1),
+            },
+        )
         if self.on_latency:
             self.on_latency(event_id, s.processing_ms, s.alarm_to_display_ms)
 
@@ -189,6 +247,7 @@ class Pipeline:
             for det in self._gate_dets(frame) + self._clf_dets(frame):
                 self._handle_detection(det)
             self._tick()
+        self._natural_end = True
         self._finish()
 
     # Threaded mode -----------------------------------------------------------------------------
@@ -217,6 +276,8 @@ class Pipeline:
                 self._offer(frame)
                 if max_seconds is not None and time.monotonic() - started >= max_seconds:
                     break
+            else:
+                self._natural_end = not self._stop.is_set()
         finally:
             self._gate_q.put(None)
             self._clf_q.put(None)
@@ -272,12 +333,20 @@ class Pipeline:
             self._handle_detection(det)
             self._tick()
 
+    # Shutdown ----------------------------------------------------------------------------------
+    def _settle(self) -> None:
+        """When the source ended on its own, resolve pending timers as if time had passed, so every
+        provisional alert ends as confirmed or cancelled in the log."""
+        horizon = max(self.cfg.gate.confirm_timeout_s, self.cfg.policy.ttl_s) + 0.01
+        self._apply(self.policy.tick(self.clock() + horizon))
+
     def _finish(self) -> None:
+        if self._natural_end:
+            self._settle()
+        else:
+            self.display.clear(None)
+        self.display.close()
+        self._elog.close()
         if self._recorder:
             self._recorder.close()
-        self.display.close()
         self.source.close()
-
-
-def frames_for_seconds(seconds: float) -> int:
-    return int(seconds * SAMPLE_RATE)

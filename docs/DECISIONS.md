@@ -64,3 +64,23 @@ The spec says to consider it. `Smoke detector, smoke alarm` exists in the class 
 
 ## D21. Classifier fires on every qualifying hop (Nov 13)
 While the hits-of-windows condition holds, the stage emits a Detection on every hop. The policy treats repeats as TTL extensions, so no extra alerts appear.
+
+## D22. Policy edge cases the spec leaves open (Nov 13)
+- **Lower priority while a higher alert is on screen.** The event is logged immediately with `cancel_reason='superseded'`, never shown, and its class enters cooldown.
+- **Replacement.** When a higher priority alert replaces a shown one, the replaced event gets `cancel_reason='superseded'` even if it was confirmed, and its class enters cooldown. The display receives one `show` that replaces the old alert, not a clear first.
+- **Cooldown start.** Cooldown starts when the alert clears (TTL end, timeout, or replacement), measured from that moment, not from the first detection. A cancelled provisional also starts cooldown, so a flapping source cannot retrigger every second.
+- **Stage label.** Union of the stages that contributed while the event was active: `gate`, `classifier` or `both`. It can upgrade from `gate` to `both` after confirmation.
+- **A non-provisional detection with no active alert** (classifier, or a gate pulse that arrives after cooldown) creates a confirmed event and shows the alert.
+- **TTL shorter than the confirm timer** still ends an unconfirmed alert as `timeout`.
+
+## D23. Event ids (Nov 13)
+Ids use the spec format `e_000123` and continue from the highest stored id, so a database shared across runs never collides.
+
+## D24. End of a source (Nov 13)
+When a replay source ends on its own, the pipeline fast-forwards the policy clock by `max(confirm_timeout_s, ttl_s)` so every provisional alert ends as confirmed or cancelled in the log. On Ctrl+C it does not, and it clears the display instead, so an interrupted run never invents a `timeout`.
+
+## D25. Log writes are asynchronous (Nov 13)
+Inserts and updates go through `AsyncEventLog` on their own thread, in order, so the policy worker never waits for SQLite. Reads (dashboard) use the locked connection directly. `Pipeline` flushes the writer at the end of a run.
+
+## D26. Event log defaults (Nov 13)
+`run_replay` and `run_live` write to `eventlog.path` from the config. Replays are tagged `source=synthetic` or `source=replay`, never `live`. Use `--db PATH` for a throwaway database.

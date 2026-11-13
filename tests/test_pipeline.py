@@ -136,3 +136,127 @@ def test_threaded_pipeline_survives_failing_display(tmp_path: Path) -> None:
     metrics = Metrics()
     Pipeline(cfg_with(tmp_path), AudioFileSource(audio), Boom(), metrics).run()
     assert metrics.summary()["n"] == 0  # a display that raised never counts as shown
+
+
+# ---- policy and log through the pipeline (M4) --------------------------------------------------
+def run_to_log(tmp_path: Path, scenario: dict, classifier=None, label: str = "synthetic"):
+    from sentinel.eventlog import EventLog
+
+    rendered = render(Scenario.model_validate(scenario))
+    log = EventLog()
+    cfg = cfg_with(tmp_path)
+    Pipeline(
+        cfg,
+        AudioFileSource(rendered.audio, t0=0.0),
+        RecordingDisplay(),
+        eventlog=log,
+        classifier=classifier,
+        source_label=label,
+    ).run_sync()
+    return log, cfg
+
+
+BASE = {"duration_s": 30, "seed": 7, "noise": {"type": "pink", "level_dbfs": -30}}
+
+
+def test_replay_event_lands_in_sqlite_with_stage_latency_and_hash(tmp_path: Path) -> None:
+    sc = {
+        **BASE,
+        "name": "t",
+        "events": [
+            {
+                "kind": "tonal_alarm",
+                "start_s": 10,
+                "duration_s": 6,
+                "snr_db": 10,
+                "label": "reversing_alarm",
+            }
+        ],
+    }
+    log, cfg = run_to_log(tmp_path, sc)
+    rows = log.list()
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["alert_class"] == "reversing_alarm" and r["stage"] == "gate"
+    assert r["confirmed"] == 1 and r["cancel_reason"] is None
+    assert r["source"] == "synthetic" and r["config_hash"] == cfg.config_hash()
+    assert r["processing_ms"] is not None and r["processing_ms"] < 50
+    assert 250 < r["alarm_to_display_ms"] < 600
+    assert r["t_display"] > r["t_detect"] > r["t_onset"]
+    assert r["acknowledged"] == 0
+
+
+def test_unconfirmed_provisional_is_logged_as_timeout(tmp_path: Path) -> None:
+    # A tone that starts mid-stream raises one provisional alert and is never confirmed (D9).
+    sc = {
+        **BASE,
+        "name": "t",
+        "events": [{"kind": "tone", "start_s": 5, "duration_s": 8, "snr_db": 10}],
+    }
+    log, _ = run_to_log(tmp_path, sc)
+    rows = log.list()
+    assert len(rows) == 1
+    assert rows[0]["confirmed"] == 0 and rows[0]["cancel_reason"] == "timeout"
+    assert rows[0]["stage"] == "gate"
+
+
+def test_negatives_leave_the_log_empty(tmp_path: Path) -> None:
+    sc = {
+        **BASE,
+        "name": "t",
+        "events": [
+            {"kind": "beep", "start_s": 5, "duration_s": 0.1, "snr_db": 10},
+            {"kind": "click", "start_s": 9, "snr_db": 10},
+        ],
+    }
+    log, _ = run_to_log(tmp_path, sc)
+    assert log.count() == 0
+
+
+def test_source_label_is_stored(tmp_path: Path) -> None:
+    sc = {
+        **BASE,
+        "name": "t",
+        "events": [
+            {
+                "kind": "tonal_alarm",
+                "start_s": 10,
+                "duration_s": 6,
+                "snr_db": 10,
+                "label": "reversing_alarm",
+            }
+        ],
+    }
+    log, _ = run_to_log(tmp_path, sc, label="replay")
+    assert log.list()[0]["source"] == "replay"
+
+
+def test_listeners_receive_protocol_messages(tmp_path: Path) -> None:
+    rendered = render(load_scenario(ROOT / "scenarios" / "tonal_10db.yaml"))
+    msgs: list[dict] = []
+    p = Pipeline(cfg_with(tmp_path), AudioFileSource(rendered.audio, t0=0.0), RecordingDisplay())
+    p.add_listener(msgs.append)
+    p.run_sync()
+    types = [m["type"] for m in msgs]
+    assert types[0] == "event" and "alert" in types and "clear" in types
+    alert = next(m for m in msgs if m["type"] == "alert")
+    assert alert["line1"] == "BACKUP ALARM" and alert["line2"] == "NEARBY"
+    assert alert["tier"] == 1 and alert["blink"] is True and alert["ttl_ms"] == 3000
+    assert any(m["type"] == "event" and m["event"].get("confirmed") is True for m in msgs)
+
+
+def test_run_replay_tool_writes_events_to_sqlite(tmp_path: Path, capsys) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("run_replay", ROOT / "tools" / "run_replay.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    db = tmp_path / "ev.sqlite"
+    rc = mod.main([str(ROOT / "scenarios" / "tonal_10db.yaml"), "--no-classifier", "--db", str(db)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "provisional" in out and "CONFIRMED" in out and "1 new event" in out
+    from sentinel.eventlog import EventLog
+
+    rows = EventLog(db).list()
+    assert len(rows) == 1 and rows[0]["stage"] == "gate" and rows[0]["source"] == "synthetic"

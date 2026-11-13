@@ -14,6 +14,7 @@ from sentinel.adapters import make_display
 from sentinel.adapters.audio_mic import AudioMicSource, list_devices
 from sentinel.classify.yamnet import build_classifier_stage
 from sentinel.config import ConfigError, load_config
+from sentinel.eventlog import EventLog
 from sentinel.metrics import CpuMeter, Metrics
 from sentinel.pipeline import Pipeline
 
@@ -31,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--display", default=None, help="override display.adapter")
     parser.add_argument("--record", action="store_true", help="save raw audio to data/recordings/")
     parser.add_argument("--duration", type=float, default=None, help="stop after N seconds")
+    parser.add_argument("--db", default=None, help="event log path (default: config eventlog.path)")
     parser.add_argument("--no-classifier", action="store_true", help="gate only, no model needed")
     parser.add_argument("--list-devices", action="store_true")
     args = parser.parse_args(argv)
@@ -40,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cfg = load_config(args.config)
         display = make_display(cfg, args.display)
+        log = EventLog(args.db or cfg.eventlog.path)
         stage = None if args.no_classifier else build_classifier_stage(cfg.classifier)
         metrics = Metrics()
         source = AudioMicSource(
@@ -58,7 +61,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     pipeline = Pipeline(
-        cfg, source, display, metrics, on_latency=report, record=args.record, classifier=stage
+        cfg,
+        source,
+        display,
+        metrics,
+        on_latency=report,
+        record=args.record,
+        classifier=stage,
+        eventlog=log,
+        source_label="live",
     )
     signal.signal(signal.SIGINT, lambda *_: pipeline.stop())
     cpu = CpuMeter()
