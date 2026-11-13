@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Downloaded models (see models/README.md)
+models/*
+!models/README.md
+!models/.gitkeep
+
+# Audio and generated data. Tracked: ATTRIBUTIONS.md and manifests.
+data/*
+!data/.gitkeep
+!data/ATTRIBUTIONS.md
+!data/manifests/
+data/manifests/*
+!data/manifests/*.json
+!data/manifests/*.md
+
+# Generated reports keep only the template and the synthetic example
+reports/*
+!reports/.gitkeep
+!reports/README.md

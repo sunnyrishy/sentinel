@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sentinel"
+version = "0.1.0"
+description = "Sound-to-sight alarm alerts for smart glasses (assistive alert, not a certified safety device)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "pydantic>=2.5",
+  "pyyaml>=6.0",
+  "soundfile>=0.12",
+  "sounddevice>=0.4.6",
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+  "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+# Classifier runtime. Install one: ai-edge-litert (preferred) or tflite-runtime or tensorflow.
+classifier = ["ai-edge-litert"]
+dev = ["pytest>=8", "ruff>=0.4", "httpx>=0.27"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sentinel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tools", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF012", "UP042"]  # UP042: spec mandates class AlertClass(str, Enum)

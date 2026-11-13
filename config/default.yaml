@@ -1,0 +1,55 @@
+audio:
+  sample_rate: 16000
+  device: null              # sounddevice name or index, null = system default
+  frame_ms: 32
+buffer:
+  seconds: 10
+gate:
+  enabled: true
+  n_fft: 1024
+  hop: 256
+  band_hz: [800, 3000]      # ASSUMPTION, tune on real recordings
+  peak_to_median_db: 15
+  freq_tolerance_hz: 50
+  min_stable_frames: 5
+  burst_min_s: 0.25
+  burst_max_s: 1.0
+  pulse_period_s: [0.6, 1.5]
+  confirm_timeout_s: 1.6
+classifier:
+  enabled: true
+  model_path: models/yamnet_classification.tflite   # final name set by fetch_models.py
+  class_map_path: models/yamnet_class_map.csv
+  hop_s: 0.25
+  smoothing: {hits: 2, windows: 3}
+  classes:                  # names must match the class map exactly
+    reversing_alarm:
+      names: ['Reversing beeps']
+      threshold: 0.30
+    vehicle_horn:
+      names: ['Vehicle horn, car horn, honking', 'Air horn, truck horn']
+      threshold: 0.30
+    fire_alarm:
+      names: ['Fire alarm']
+      threshold: 0.30
+policy:
+  cooldown_s: 5.0
+  ttl_s: 3.0
+  blink: true
+  priority: [fire_alarm, reversing_alarm, vehicle_horn]
+display:
+  adapter: console          # console | sim | bridge | microlumin
+  caps:
+    lines: 2
+    max_chars_per_line: 12  # ASSUMPTION
+    color: mono_green       # ASSUMPTION
+    supports_blink: false
+dashboard:
+  enabled: true
+  host: 127.0.0.1
+  port: 8765
+eventlog:
+  path: data/events.sqlite
+recording:
+  enabled: false            # only true with the --record flag
+  dir: data/recordings
