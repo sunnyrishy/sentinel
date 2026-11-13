@@ -54,6 +54,7 @@ def start_runtime(
     db: str | None = None,
     serve: bool = False,
     use_dashboard: bool = True,
+    extra_status: dict[str, Any] | None = None,
 ) -> Runtime:
     """Create everything a run needs. The dashboard starts when a sim or bridge display is chosen,
     or when serve is true (which adds the sim display so alerts appear in the browser)."""
@@ -72,6 +73,7 @@ def start_runtime(
                 "source": source_label,
                 "recording_badge": source_label != "live",
                 "version": "0.1.0",
+                **(extra_status or {}),
             }
 
         hub, server = start_dashboard(cfg, eventlog, status)

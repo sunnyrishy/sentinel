@@ -1,0 +1,12 @@
+# SYNTHETIC demo audio for tools/demo.py replay mode. It is a recording stand-in, never live.
+# Two backup alarms in babble noise, with a lone beep and a click between them that must not alert.
+# Horn and fire alarm need real clips: see docs/RECORDING_GUIDE.md and `demo.py --input`.
+name: demo_replay
+duration_s: 50
+seed: 42
+noise: {type: babble, level_dbfs: -32}
+events:
+  - {kind: tonal_alarm, freq_hz: 1900, pulses_per_min: 70, start_s: 6, duration_s: 6, snr_db: 8, label: reversing_alarm}
+  - {kind: beep, freq_hz: 1900, start_s: 20, duration_s: 0.1, snr_db: 8}
+  - {kind: click, start_s: 24, snr_db: 8}
+  - {kind: tonal_alarm, freq_hz: 1900, pulses_per_min: 70, start_s: 30, duration_s: 6, snr_db: 5, label: reversing_alarm}

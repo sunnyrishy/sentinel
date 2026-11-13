@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import signal
 import sys
+import threading
 
 from sentinel.adapters import make_audio_source
 from sentinel.adapters.audio_mic import list_devices
@@ -92,7 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         source_label="live",
     )
     runtime.attach(pipeline)
-    signal.signal(signal.SIGINT, lambda *_: pipeline.stop())
+    if threading.current_thread() is threading.main_thread():  # signals need the main thread
+        signal.signal(signal.SIGINT, lambda *_: pipeline.stop())
     cpu = CpuMeter()
     print(f"Listening on the {args.input} input. Ctrl+C to stop.")
     print("Sentinel is an assistive alert, not a certified safety device.")

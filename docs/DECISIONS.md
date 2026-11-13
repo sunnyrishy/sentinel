@@ -140,3 +140,20 @@ Both publish the spec's `alert` and `clear` messages through the dashboard WebSo
 
 ## D41. No new config keys for hardware (Nov 13)
 The audio input is chosen with `--input mic|glasses` and the display with `--display`. The config schema is unchanged, because the spec's `config/default.yaml` rejects unknown keys and every unknown already has a slot.
+
+## D42. Demo mode behaviour (Nov 13)
+- `tools/demo.py` starts the pipeline, dashboard, simulator and console display, and opens `/?kiosk=1` unless `--no-browser`.
+- Live is the default mode. If the microphone cannot be opened it falls back to a replay of `scenarios/demo.yaml`, prints a `NOT LIVE` banner, and the page shows the RECORDING badge. `--no-fallback` makes it fail instead.
+- Replay mode loops the audio at wall-clock speed until Ctrl+C. A synthetic scenario is tagged `synthetic`; a wav or a real-origin scenario is tagged `replay`. Neither is ever tagged `live`.
+- The demo uses its own event log, `data/demo_events.sqlite`, wiped at start unless `--keep-log`, so the counters on stage start at zero and demo events never mix with other logs.
+- Classifier model missing: the demo prints a warning and runs gate-only instead of refusing to start.
+- `/api/status` carries `mode: demo`, `strict` and `input` (a description of the source) as additions to `source` and `recording_badge`.
+
+## D43. Demo-mode toggle (Nov 13)
+The risk register asks for a demo-mode toggle to cut false alerts from speech and music. Without real negatives to tune on, I did not invent new thresholds. `--strict` only changes classifier smoothing from 2 of 3 to 3 of 3 windows. It changes the config hash, so events recorded in strict mode are distinguishable. Tune real thresholds with `evaluate.py --sweep-thresholds` on your negatives.
+
+## D44. Demo scenario is synthetic (Nov 13)
+`scenarios/demo.yaml` has two backup alarms in babble with a lone beep and a click that must not alert. It has no horn or fire alarm because synthetic stand-ins are not recognised by YAMNet and the spec forbids passing synthetic audio off as real. Use `--input` with your own clips for a three-class demo.
+
+## D45. Threads and signals (Nov 13)
+Tools install a SIGINT handler only on the main thread, so they can also be driven from a test or another program.
