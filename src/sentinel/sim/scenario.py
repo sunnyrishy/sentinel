@@ -67,6 +67,8 @@ class Scenario(_Strict):
     duration_s: float = Field(gt=0)
     seed: int = 0
     origin: Literal["synthetic", "real"] | None = None
+    split: Literal["dev", "heldout"] | None = None  # tune on dev, report on heldout
+    level: str | None = None  # free-form noise level tag, e.g. easy, loud, very_loud
     noise: NoiseSpec
     events: list[EventSpec] = []
 
@@ -101,6 +103,8 @@ class RenderedScenario:
     origin: str  # 'synthetic' or 'real'
     noise_type: str
     noise_dbfs: float
+    split: str | None = None
+    level: str | None = None
 
     @property
     def duration_s(self) -> float:
@@ -182,4 +186,6 @@ def render(scenario: Scenario) -> RenderedScenario:
         scenario.audio_origin,
         scenario.noise.type,
         scenario.noise.level_dbfs,
+        scenario.split,
+        scenario.level,
     )

@@ -25,3 +25,8 @@ data/manifests/*
 reports/*
 !reports/.gitkeep
 !reports/README.md
+!reports/TEMPLATE.md
+!reports/example_synthetic.md
+
+# Scenarios generated from your own recordings stay local
+scenarios/generated/

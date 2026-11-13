@@ -101,3 +101,27 @@ The display adapter (`display_sim.py`, later `display_bridge.py`) emits `alert` 
 
 ## D30. Browser check (Nov 13)
 The page was driven with the preinstalled Chromium against a live replay: alert text, RECORDING badge, row update, click to acknowledge, kiosk layout and no console errors. This is a manual check, not part of the pytest suite.
+
+## D31. Evaluation library and test-set library (Nov 13)
+Logic lives in `src/sentinel/evaluation.py` and `src/sentinel/testset.py` so it can be unit tested; `tools/evaluate.py` and `tools/make_test_set.py` are thin command line wrappers. These two modules are not in the spec's repo layout.
+
+## D32. Scoring details (Nov 13)
+- "Detected" uses the spec rule on `Detection` objects: a non-provisional detection of the right class with `t_detect` in [start, end + 1.0 s] of the scenario's ground-truth event.
+- "Shown" means the display's `show` returned (the event has a `t_display`). A lower priority event that was logged but never shown is not an alert and is never a false alert.
+- An alert is matched to an event if its class equals the event label and its `t_detect` falls in the same window. An alert of the wrong class at the right time is a false alert.
+- Alarm-to-display latency in reports is measured from the scenario's ground-truth onset to the first display. The estimated-onset figure that the event log stores is shown next to it.
+- Latency groups: tonal path means the first alert came from the gate (stage `gate` or `both`); classifier only means stage `classifier`.
+- False alerts per hour are reported for negative-only scenarios (the spec's R3 test) and, separately, for time outside labelled events in positive scenarios.
+- CPU is process CPU time divided by audio duration, measured with the pipeline running as fast as possible on one thread.
+
+## D33. One report per audio origin (Nov 13)
+`tools/evaluate.py` never mixes synthetic and real scenarios in one table. It writes one report per origin, named `<stem>_synthetic.md` or `<stem>_real.md`, each with a banner at the top. The "Goals from the spec" table only says "meets goal" or "below goal" for real audio; for synthetic audio every row says "n/a (synthetic, not a claim)".
+
+## D34. Noise levels are signal-to-noise settings (Nov 13)
+The spec's easy, loud and very loud noise levels map to a signal-to-noise ratio per scenario (`easy=10, loud=5, very_loud=0` dB by default, with the noise bed fixed at -30 dBFS). Scenarios carry a `level` tag and a `split` (`dev` or `heldout`). A held-out session is chosen with `--heldout-session`, matched against the manifest's `session` column.
+
+## D35. Threshold sweep approximations (Nov 13)
+The sweep reads class scores at exact hop boundaries and applies the stage's hits-of-windows smoothing offline, per class and threshold. Precision is the share of detection episodes that overlap an event of that class (event window plus 1.0 s). Recall is the share of events with a detection inside their window. This can differ slightly from a live run because the stage aligns to 32 ms frame boundaries.
+
+## D36. Python is fast enough (Nov 13)
+A full synthetic evaluation (55 scenarios, 2.3 hours of audio, gate and classifier) runs in 80 s and costs about 0.9% of one core. Gate processing latency is about 0.1 ms per event. No profiling or C++ port is needed on the laptop. This says nothing about a phone or other target device.
