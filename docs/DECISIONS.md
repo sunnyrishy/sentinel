@@ -84,3 +84,20 @@ Inserts and updates go through `AsyncEventLog` on their own thread, in order, so
 
 ## D26. Event log defaults (Nov 13)
 `run_replay` and `run_live` write to `eventlog.path` from the config. Replays are tagged `source=synthetic` or `source=replay`, never `live`. Use `--db PATH` for a throwaway database.
+
+## D27. Who emits which WebSocket message (Nov 13)
+The display adapter (`display_sim.py`, later `display_bridge.py`) emits `alert` and `clear`. The pipeline emits `event` messages (create, confirm, cancel, latencies, acknowledge) through listeners. The dashboard server adds `stats` every 2 s. This keeps the architecture rule that the display adapter is the only thing that draws, so a phone bridge receives exactly what the glasses would.
+
+## D28. Dashboard runs inside the tool process (Nov 13)
+`tools/run_live.py` and `tools/run_replay.py` start uvicorn on a background thread (`sentinel.runtime.start_runtime`) when a `sim` or `bridge` display is chosen, or with `--serve`. The default config keeps `display.adapter: console` as in the spec; use `--sim` (adds the simulator to the display list) or `--display console,sim`. `--serve` implies real-time pacing so the browser timers match the audio.
+
+## D29. Simulator behaviour (Nov 13)
+- The simulator blinks natively, so `SimDisplay.capabilities().supports_blink` is always true and the pipeline does not emulate blink for it.
+- Clicking an alert acknowledges the event but does not clear it. It stays until `clear` or its `ttl_ms`.
+- A page opened mid-alert receives the active alert with its remaining time.
+- The `RECORDING` badge is driven by `GET /api/status` (`source` is not `live`). The same value is stored in every event's `source` column.
+- `GET /api/per_hour` and `GET /api/events.csv` are additions to the endpoints in the spec, for the near-miss view and CSV export.
+- Alert text is drawn at 12 characters per line (the assumed display size) and never wraps.
+
+## D30. Browser check (Nov 13)
+The page was driven with the preinstalled Chromium against a live replay: alert text, RECORDING badge, row update, click to acknowledge, kiosk layout and no console errors. This is a manual check, not part of the pytest suite.

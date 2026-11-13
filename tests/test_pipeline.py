@@ -231,18 +231,19 @@ def test_source_label_is_stored(tmp_path: Path) -> None:
     assert log.list()[0]["source"] == "replay"
 
 
-def test_listeners_receive_protocol_messages(tmp_path: Path) -> None:
+def test_listeners_receive_event_messages_only(tmp_path: Path) -> None:
+    """Pipeline listeners get 'event' messages. Alert and clear come from the display adapter."""
     rendered = render(load_scenario(ROOT / "scenarios" / "tonal_10db.yaml"))
     msgs: list[dict] = []
     p = Pipeline(cfg_with(tmp_path), AudioFileSource(rendered.audio, t0=0.0), RecordingDisplay())
     p.add_listener(msgs.append)
     p.run_sync()
-    types = [m["type"] for m in msgs]
-    assert types[0] == "event" and "alert" in types and "clear" in types
-    alert = next(m for m in msgs if m["type"] == "alert")
-    assert alert["line1"] == "BACKUP ALARM" and alert["line2"] == "NEARBY"
-    assert alert["tier"] == 1 and alert["blink"] is True and alert["ttl_ms"] == 3000
-    assert any(m["type"] == "event" and m["event"].get("confirmed") is True for m in msgs)
+    assert {m["type"] for m in msgs} == {"event"}
+    first = msgs[0]["event"]
+    assert first["id"] == "e_000001" and first["alert_class"] == "reversing_alarm"
+    assert first["confirmed"] is False and first["ts_wall"].endswith("+00:00")
+    assert any(m["event"].get("confirmed") is True for m in msgs)
+    assert any("alarm_to_display_ms" in m["event"] for m in msgs)
 
 
 def test_run_replay_tool_writes_events_to_sqlite(tmp_path: Path, capsys) -> None:

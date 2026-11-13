@@ -19,7 +19,7 @@ from sentinel.adapters.base import AsyncDisplay
 from sentinel.buffer import RingBuffer
 from sentinel.classify.yamnet import ClassifierStage
 from sentinel.config import SentinelConfig
-from sentinel.eventlog import AsyncEventLog, EventLog
+from sentinel.eventlog import AsyncEventLog, EventLog, utc_now_iso
 from sentinel.gate.tonal import GateParams, GateState, process
 from sentinel.metrics import Metrics
 from sentinel.policy import (
@@ -131,7 +131,8 @@ class Pipeline:
         self._policy_q: queue.Queue[Detection | None] = queue.Queue()
 
     def add_listener(self, callback: Listener) -> None:
-        """Receive WebSocket-protocol messages (alert, clear, event) as they happen."""
+        """Receive WebSocket-protocol 'event' messages as they happen. Alert and clear messages come
+        from the display adapter (display_sim or display_bridge), not from the pipeline."""
         self._listeners.append(callback)
 
     def _emit(self, message: dict[str, Any]) -> None:
@@ -154,28 +155,18 @@ class Pipeline:
                 self._create(a)
             elif isinstance(a, ShowAlert):
                 self.display.show(a.alert)
-                self._emit(
-                    {
-                        "type": "alert",
-                        "event_id": a.alert.event_id,
-                        "line1": a.alert.line1,
-                        "line2": a.alert.line2,
-                        "tier": a.alert.tier,
-                        "blink": a.alert.blink,
-                        "ttl_ms": int(a.alert.ttl_s * 1000),
-                    }
-                )
             elif isinstance(a, UpdateEvent):
                 self._elog.update(a.event_id, **a.changes)
                 self._emit_event(a.event_id, a.changes)
             elif isinstance(a, ClearAlert):
                 self.display.clear(a.event_id)
-                self._emit({"type": "clear", "event_id": a.event_id})
 
     def _create(self, e: CreateEvent) -> None:
         self._times[e.event_id] = (e.t_onset, e.t_detect)
+        ts_wall = utc_now_iso()
         self._elog.insert(
             id=e.event_id,
+            ts_wall=ts_wall,
             alert_class=e.alert_class.value,
             stage=e.stage,
             score=e.score,
@@ -189,7 +180,9 @@ class Pipeline:
         self._emit_event(
             e.event_id,
             {
+                "ts_wall": ts_wall,
                 "alert_class": e.alert_class.value,
+                "score": e.score,
                 "stage": e.stage,
                 "confirmed": e.confirmed,
                 "cancel_reason": e.cancel_reason,

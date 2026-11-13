@@ -16,7 +16,15 @@ from collections.abc import Callable
 
 from sentinel.types import Alert, AudioSource, DisplayAdapter, DisplayCaps
 
-__all__ = ["Alert", "AsyncDisplay", "AudioSource", "DisplayAdapter", "DisplayCaps", "fit_lines"]
+__all__ = [
+    "Alert",
+    "AsyncDisplay",
+    "AudioSource",
+    "DisplayAdapter",
+    "DisplayCaps",
+    "MultiDisplay",
+    "fit_lines",
+]
 
 log = logging.getLogger("sentinel.display")
 
@@ -149,3 +157,33 @@ class AsyncDisplay:
             self._guarded(lambda: self._inner.show(alert))
         else:
             self._guarded(lambda: self._inner.clear(alert.event_id))
+
+
+class MultiDisplay:
+    """Fans every call out to several adapters, for example console plus the browser simulator."""
+
+    def __init__(self, children: list[DisplayAdapter]) -> None:
+        if not children:
+            raise ValueError("MultiDisplay needs at least one adapter")
+        self._children = children
+
+    def capabilities(self) -> DisplayCaps:
+        first = self._children[0].capabilities()
+        blink_everywhere = all(c.capabilities().supports_blink for c in self._children)
+        return DisplayCaps(first.lines, first.max_chars_per_line, first.color, blink_everywhere)
+
+    def _each(self, fn: Callable[[DisplayAdapter], None]) -> None:
+        for child in self._children:
+            try:
+                fn(child)
+            except Exception:
+                log.exception("display adapter %s failed", type(child).__name__)
+
+    def show(self, alert: Alert) -> None:
+        self._each(lambda c: c.show(alert))
+
+    def clear(self, event_id: str | None = None) -> None:
+        self._each(lambda c: c.clear(event_id))
+
+    def close(self) -> None:
+        self._each(lambda c: c.close())

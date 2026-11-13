@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #2a313c; --text: #e6edf3; --muted: #8b96a5;
+    --accent: #3dff7a; --warn: #ffb84d; --bad: #ff6b6b; --ok: #4cd08a; --lens: #000;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f6f8; --panel: #ffffff; --line: #d8dee6; --text: #16202b; --muted: #5a6675;
+            --warn: #a15c00; --bad: #c0392b; --ok: #1b8a54; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin-bottom: 14px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: .02em; }
+  .tag { color: var(--muted); font-size: 13px; flex: 1 1 260px; }
+  .badge { font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 3px 9px;
+    border-radius: 999px; border: 1px solid var(--line); }
+  .badge.live { color: var(--ok); border-color: var(--ok); }
+  .badge.recording { color: #111; background: var(--warn); border-color: var(--warn); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; }
+  .dot.on { background: var(--ok); }
+  .grid { display: grid; gap: 14px; grid-template-columns: 1.3fr 1fr; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .side { display: grid; gap: 14px; align-content: start; }
+  .stack { margin-top: 14px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    margin: 0 0 10px; font-weight: 600; }
+  /* Glasses view simulator */
+  .frame { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden;
+    container-type: inline-size;
+    background: radial-gradient(120% 90% at 30% 70%, #3b4756 0%, #20272f 55%, #14181d 100%); }
+  .frame .hint { position: absolute; left: 4cqw; bottom: 3cqw; color: #7c8794; font-size: 1.9cqw; }
+  .lens { position: absolute; top: 5cqw; right: 4cqw; width: 36cqw; min-height: 11cqw; background: var(--lens);
+    border: .25cqw dashed #33403a; border-radius: 1.2cqw; padding: 1.6cqw 1.8cqw; cursor: default;
+    display: flex; flex-direction: column; justify-content: center; text-align: left;
+    font: 700 3.7cqw/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--accent);
+    text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; overflow: hidden; }
+  .lens.active { cursor: pointer; border-style: solid; border-color: #1f6b3a; }
+  .lens.active.blink .l1, .lens.active.blink .l2 { animation: blink 1s steps(1, end) infinite; }
+  .lens.acked { opacity: .75; }
+  .lens .l2 { font-size: 3cqw; opacity: .9; }
+  .lens .ack { position: absolute; right: 1.2cqw; bottom: .8cqw; font-size: 1.7cqw; color: #7cdba0; }
+  @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: .15; } }
+  .caption { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+  /* Counters and latency */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .tile b { display: block; font-size: 24px; line-height: 1.1; }
+  .tile span { color: var(--muted); font-size: 12px; }
+  .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 14px; font-size: 14px; }
+  .kv .h { color: var(--muted); font-size: 12px; }
+  .kv .n { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Near-miss bars */
+  .bars { display: grid; gap: 5px; }
+  .bar { display: grid; grid-template-columns: 170px 1fr 34px; gap: 8px; align-items: center; font-size: 13px; }
+  .bar i { display: block; height: 10px; border-radius: 5px; background: var(--accent); opacity: .85; }
+  .bar span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Feed */
+  .feedhead { display: flex; align-items: center; justify-content: space-between; }
+  a.btn, button.btn { font: inherit; font-size: 13px; color: var(--text); background: transparent;
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; text-decoration: none; }
+  a.btn:hover, button.btn:hover { border-color: var(--accent); }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); } .muted { color: var(--muted); }
+  .empty { color: var(--muted); padding: 14px 4px; }
+  /* Kiosk mode: full-screen simulator with a compact stats strip */
+  body.kiosk { overflow: hidden; }
+  body.kiosk .wrap { max-width: none; padding: 0; height: 100vh; display: flex; flex-direction: column; }
+  body.kiosk header, body.kiosk .side, body.kiosk .stack, body.kiosk .caption { display: none; }
+  body.kiosk .grid { display: block; flex: 1; min-height: 0; }
+  body.kiosk .simpanel { border: 0; border-radius: 0; padding: 0; height: 100%; background: #0b0e12; display: flex; align-items: center; }
+  body.kiosk .simpanel h2 { display: none; }
+  body.kiosk .frame { width: min(100vw, calc((100vh - 48px) * 16 / 9)); margin: 0 auto; border-radius: 0; }
+  body.kiosk .lens { font-size: 4.2cqw; }
+  body.kiosk .lens .l2 { font-size: 3.4cqw; }
+  .strip { display: none; }
+  body.kiosk .strip { display: flex; gap: 22px; align-items: center; justify-content: center; height: 48px;
+    background: var(--panel); border-top: 1px solid var(--line); font-size: 15px; padding: 0 14px; }
+  .strip b { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Sentinel</h1>
+    <div class="tag">Sound-to-sight alarm alerts. An assistive alert, not a certified safety device.</div>
+    <span id="source" class="badge live">LIVE</span>
+    <span><span id="conn" class="dot"></span> <span id="connText" class="muted">connecting</span></span>
+  </header>
+
+  <div class="grid">
+    <section class="panel simpanel">
+      <h2>Glasses view (simulator)</h2>
+      <div class="frame" id="frame">
+        <div id="lens" class="lens" role="status" aria-live="assertive" title="">
+          <div class="l1"></div><div class="l2"></div><div class="ack" hidden>ACK</div>
+        </div>
+        <div class="hint">Click an alert to acknowledge it.</div>
+      </div>
+      <div class="caption">Drawn as the real display is described: a small region at the upper right, two lines, green on black.</div>
+    </section>
+
+    <div class="more side">
+      <section class="panel">
+        <h2>Counters</h2>
+        <div class="tiles">
+          <div class="tile"><b id="c_reversing_alarm">0</b><span>Backup alarm</span></div>
+          <div class="tile"><b id="c_vehicle_horn">0</b><span>Vehicle horn</span></div>
+          <div class="tile"><b id="c_fire_alarm">0</b><span>Fire alarm</span></div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><b id="c_confirmed" class="ok">0</b><span>Confirmed</span></div>
+          <div class="tile"><b id="c_cancelled" class="warn">0</b><span>Cancelled</span></div>
+          <div class="tile"><b id="c_hour">0</b><span>Last hour</span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>Latency</h2>
+        <div class="kv">
+          <span class="h"></span><span class="h n">median</span><span class="h n">95th pct</span>
+          <span>Processing</span><span class="n" id="l_proc50">n/a</span><span class="n" id="l_proc95">n/a</span>
+          <span>Alarm to display</span><span class="n" id="l_a2d50">n/a</span><span class="n" id="l_a2d95">n/a</span>
+        </div>
+        <div class="caption">Measured in software. True end to end latency on the glasses needs a hardware measurement.</div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel more stack">
+    <h2>Near misses per hour</h2>
+    <div id="bars" class="bars"><div class="empty">No events yet.</div></div>
+  </section>
+
+  <section class="panel more stack">
+    <div class="feedhead"><h2>Live feed</h2><a class="btn" href="/api/events.csv">Export CSV</a></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Time</th><th>Class</th><th>Stage</th><th>Result</th><th class="num">Alarm to display</th><th>Source</th><th>Ack</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="none" class="empty">No events yet. Play an alarm near the microphone or start a replay.</div>
+    </div>
+  </section>
+
+  <div class="strip">
+    <span id="s_source" class="badge live">LIVE</span>
+    <span>Events <b id="s_total">0</b></span>
+    <span>Last hour <b id="s_hour">0</b></span>
+    <span>Median <b id="s_p50">n/a</b></span>
+    <span>95th pct <b id="s_p95">n/a</b></span>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const params = new URLSearchParams(location.search);
+  if (params.get("kiosk") === "1") document.body.classList.add("kiosk");
+
+  const CLASS_LABEL = { reversing_alarm: "Backup alarm", vehicle_horn: "Vehicle horn", fire_alarm: "Fire alarm" };
+  const events = new Map();
+  const $ = (id) => document.getElementById(id);
+  const lens = $("lens"), l1 = lens.querySelector(".l1"), l2 = lens.querySelector(".l2"), ackTag = lens.querySelector(".ack");
+  let activeId = null, activeTimer = null, refreshTimer = null;
+
+  const ms = (v) => (v === null || v === undefined ? "n/a" : (v < 10 ? v.toFixed(1) : Math.round(v)) + " ms");
+
+  // ---- simulator ------------------------------------------------------------------------------
+  function showAlert(m) {
+    clearTimeout(activeTimer);
+    activeId = m.event_id;
+    l1.textContent = m.line1 || "";
+    l2.textContent = m.line2 || "";
+    lens.classList.add("active");
+    lens.classList.toggle("blink", !!m.blink);
+    lens.classList.remove("acked");
+    ackTag.hidden = true;
+    lens.title = "Click to acknowledge";
+    const row = events.get(activeId);
+    if (row && row.acknowledged) markAcked();
+    activeTimer = setTimeout(() => clearAlert(null), Number(m.ttl_ms) || 3000);
+  }
+  function clearAlert(eventId) {
+    if (eventId && eventId !== activeId) return;
+    clearTimeout(activeTimer);
+    activeId = null;
+    l1.textContent = ""; l2.textContent = ""; ackTag.hidden = true;
+    lens.classList.remove("active", "blink", "acked");
+    lens.title = "";
+  }
+  function markAcked() { lens.classList.add("acked"); ackTag.hidden = false; }
+  lens.addEventListener("click", () => { if (activeId) acknowledge(activeId); });
+
+  async function acknowledge(id) {
+    try {
+      const r = await fetch("/api/events/" + encodeURIComponent(id) + "/ack", { method: "POST" });
+      if (r.ok) { mergeEvent({ id, acknowledged: 1 }); if (id === activeId) markAcked(); }
+    } catch (e) { /* offline: the next refresh shows the real state */ }
+  }
+
+  // ---- data ---------------------------------------------------------------------------------------
+  function mergeEvent(partial) {
+    const prev = events.get(partial.id) || {};
+    const next = Object.assign({}, prev, partial);
+    if (partial.acknowledged === true) next.acknowledged = 1;
+    if (partial.confirmed === true) next.confirmed = 1;
+    if (partial.confirmed === false) next.confirmed = 0;
+    events.set(next.id, next);
+    renderRows();
+    scheduleRefresh();
+  }
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshPanels, 250);
+  }
+  async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(url); return r.json(); }
+
+  async function refreshPanels() {
+    try {
+      const [stats, hours] = await Promise.all([getJSON("/api/stats"), getJSON("/api/per_hour")]);
+      renderStats(stats); renderBars(hours);
+    } catch (e) { /* ignore, retried on the next event */ }
+  }
+  async function loadAll() {
+    try {
+      const [rows, status] = await Promise.all([getJSON("/api/events?limit=100"), getJSON("/api/status")]);
+      events.clear();
+      rows.forEach((r) => events.set(r.id, r));
+      renderRows(); renderSource(status);
+      await refreshPanels();
+    } catch (e) { /* server not ready yet */ }
+  }
+
+  // ---- rendering ----------------------------------------------------------------------------------
+  function renderSource(status) {
+    const rec = !!(status && status.recording_badge);
+    for (const id of ["source", "s_source"]) {
+      const el = $(id);
+      el.textContent = rec ? "RECORDING" : "LIVE";
+      el.className = "badge " + (rec ? "recording" : "live");
+      el.title = rec ? "Audio source: " + status.source + ". This is not the live microphone." : "Live microphone";
+    }
+  }
+  function renderStats(s) {
+    const by = s.by_class || {};
+    for (const k of Object.keys(CLASS_LABEL)) $("c_" + k).textContent = by[k] || 0;
+    $("c_confirmed").textContent = s.confirmed || 0;
+    $("c_cancelled").textContent = s.cancelled || 0;
+    $("c_hour").textContent = s.last_hour || 0;
+    $("l_proc50").textContent = ms(s.processing_p50_ms); $("l_proc95").textContent = ms(s.processing_p95_ms);
+    $("l_a2d50").textContent = ms(s.p50_ms); $("l_a2d95").textContent = ms(s.p95_ms);
+    $("s_total").textContent = s.events_total || 0; $("s_hour").textContent = s.last_hour || 0;
+    $("s_p50").textContent = ms(s.p50_ms); $("s_p95").textContent = ms(s.p95_ms);
+  }
+  function renderBars(hours) {
+    const box = $("bars");
+    box.replaceChildren();
+    if (!hours.length) { const d = document.createElement("div"); d.className = "empty"; d.textContent = "No events yet."; box.append(d); return; }
+    const max = Math.max(...hours.map((h) => h.count));
+    for (const h of hours.slice(-24)) {
+      const row = document.createElement("div"); row.className = "bar";
+      const label = document.createElement("span"); label.className = "muted"; label.style.whiteSpace = "nowrap";
+      label.textContent = h.hour.replace("T", " ") + ":00 UTC";
+      const wrap = document.createElement("span"); const bar = document.createElement("i");
+      bar.style.width = Math.max(2, Math.round((100 * h.count) / max)) + "%"; wrap.append(bar);
+      const n = document.createElement("span"); n.textContent = h.count;
+      row.append(label, wrap, n); box.append(row);
+    }
+  }
+  function resultCell(r) {
+    const td = document.createElement("td");
+    if (r.cancel_reason === "timeout") { td.className = "warn"; td.textContent = "Cancelled (timeout)"; }
+    else if (r.cancel_reason === "superseded") { td.className = "muted"; td.textContent = "Superseded"; }
+    else if (r.confirmed) { td.className = "ok"; td.textContent = "Confirmed"; }
+    else { td.className = "muted"; td.textContent = "Shown, awaiting confirmation"; }
+    return td;
+  }
+  function renderRows() {
+    const tbody = $("rows");
+    const list = Array.from(events.values()).sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, 100);
+    $("none").hidden = list.length > 0;
+    tbody.replaceChildren();
+    for (const r of list) {
+      const tr = document.createElement("tr");
+      const cells = [
+        (r.ts_wall ? new Date(r.ts_wall).toLocaleTimeString() : ""),
+        CLASS_LABEL[r.alert_class] || r.alert_class || "",
+        r.stage || "",
+      ];
+      for (const c of cells) { const td = document.createElement("td"); td.textContent = c; tr.append(td); }
+      tr.append(resultCell(r));
+      const lat = document.createElement("td"); lat.className = "num";
+      lat.textContent = r.alarm_to_display_ms === null || r.alarm_to_display_ms === undefined ? "" : ms(r.alarm_to_display_ms);
+      tr.append(lat);
+      const src = document.createElement("td"); src.textContent = r.source || ""; tr.append(src);
+      const ack = document.createElement("td");
+      if (r.acknowledged) { ack.className = "ok"; ack.textContent = "Acknowledged"; }
+      else { const b = document.createElement("button"); b.className = "btn"; b.textContent = "Acknowledge"; b.addEventListener("click", () => acknowledge(r.id)); ack.append(b); }
+      tr.append(ack);
+      tbody.append(tr);
+    }
+  }
+
+  // ---- WebSocket ----------------------------------------------------------------------------------
+  let retry = 500;
+  function setConn(on) { $("conn").classList.toggle("on", on); $("connText").textContent = on ? "connected" : "reconnecting"; }
+  function connect() {
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.onopen = () => { retry = 500; setConn(true); loadAll(); };
+    ws.onclose = () => { setConn(false); setTimeout(connect, retry); retry = Math.min(retry * 2, 5000); };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === "alert") showAlert(m);
+      else if (m.type === "clear") clearAlert(m.event_id);
+      else if (m.type === "event" && m.event) mergeEvent(m.event);
+      else if (m.type === "stats") {
+        $("s_total").textContent = m.events_total; $("s_p50").textContent = ms(m.p50_ms); $("s_p95").textContent = ms(m.p95_ms);
+      }
+    };
+  }
+  loadAll();
+  connect();
+  setInterval(loadAll, 15000);
+})();
+</script>
+</body>
+</html>
