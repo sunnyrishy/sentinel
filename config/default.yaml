@@ -30,7 +30,7 @@ classifier:
       names: ['Vehicle horn, car horn, honking', 'Air horn, truck horn']
       threshold: 0.30
     fire_alarm:
-      names: ['Fire alarm']
+      names: ['Fire alarm', 'Smoke detector, smoke alarm']
       threshold: 0.30
 policy:
   cooldown_s: 5.0

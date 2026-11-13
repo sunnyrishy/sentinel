@@ -33,9 +33,11 @@ class RingBuffer:
 
     def write(self, samples: np.ndarray, t_end: float) -> None:
         x = np.asarray(samples, dtype=np.float32)
-        if len(x) > self.capacity:
+        skipped = max(0, len(x) - self.capacity)
+        if skipped:
             x = x[-self.capacity :]
         with self._lock:
+            self._total += skipped  # dropped samples still advance the absolute stream position
             pos = self._total % self.capacity
             first = min(len(x), self.capacity - pos)
             self._data[pos : pos + first] = x[:first]
@@ -43,6 +45,22 @@ class RingBuffer:
                 self._data[: len(x) - first] = x[first:]
             self._total += len(x)
             self._t_end = t_end
+
+    def window(self, end_index: int, n: int) -> np.ndarray:
+        """The n samples ending just before absolute sample index end_index (counted from the first
+        sample ever written). Lets a worker read a window aligned to the frame it is processing even
+        if the writer has moved on. Samples that are not available (too old) read as zeros."""
+        n = min(n, self.capacity)
+        with self._lock:
+            end_index = min(end_index, self._total)
+            oldest = max(0, self._total - self.capacity)
+            start = max(oldest, end_index - n)
+            avail = max(0, end_index - start)
+            idx = np.arange(start, end_index) % self.capacity
+            out = np.zeros(n, dtype=np.float32)
+            if avail:
+                out[n - avail :] = self._data[idx]
+        return out
 
     def latest(self, n: int) -> np.ndarray:
         """The most recent n samples, oldest first. Left-padded with zeros if not yet available."""

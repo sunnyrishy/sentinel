@@ -12,7 +12,8 @@ import numpy as np
 
 from sentinel.adapters import make_display
 from sentinel.adapters.audio_file import AudioFileSource, load_wav_16k
-from sentinel.config import ConfigError, load_config
+from sentinel.classify.yamnet import YamnetClassifier, build_classifier_stage
+from sentinel.config import ConfigError, SentinelConfig, load_config
 from sentinel.gate.tonal import GateParams, GateState, process
 from sentinel.pipeline import Pipeline
 from sentinel.sim.scenario import load_scenario, render
@@ -30,10 +31,25 @@ def replay_gate(audio: np.ndarray, params: GateParams, frame_ms: int = 32) -> li
     return out
 
 
+def print_scores(audio: np.ndarray, cfg: SentinelConfig, top: int = 3) -> None:
+    """Print class scores per classifier hop: the top classes and the three Sentinel classes."""
+    clf = YamnetClassifier(cfg.classifier)
+    hop = int(cfg.classifier.hop_s * SAMPLE_RATE)
+    print(f"Classifier window {clf.window_len} samples ({clf.window_s:.3f} s), hop {hop} samples")
+    for end in range(clf.window_len, len(audio) + 1, hop):
+        scores = clf.infer(audio[end - clf.window_len : end])
+        best = np.argsort(scores)[::-1][:top]
+        top_txt = ", ".join(f"{clf.class_names[i]} {scores[i]:.2f}" for i in best)
+        ours = " ".join(f"{c.value} {v:.2f}" for c, v in clf.class_scores(scores).items())
+        print(f"t={end / SAMPLE_RATE:6.2f}s  top: {top_txt}  | {ours}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("input", help="scenario .yaml or audio file")
     parser.add_argument("--config", default=None)
+    parser.add_argument("--scores", action="store_true", help="print classifier scores per hop")
+    parser.add_argument("--no-classifier", action="store_true", help="gate only")
     args = parser.parse_args(argv)
     try:
         cfg = load_config(args.config)
@@ -49,6 +65,13 @@ def main(argv: list[str] | None = None) -> int:
         print(err, file=sys.stderr)
         return 2
 
+    if args.scores:
+        try:
+            print_scores(audio, cfg)
+        except ConfigError as err:
+            print(err, file=sys.stderr)
+            return 2
+        return 0
     print(f"Replaying {label}, {len(audio) / SAMPLE_RATE:.1f} s")
     params = GateParams.from_config(cfg.gate)
     for d in replay_gate(audio, params):
@@ -58,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
             f"onset={d.t_onset:7.3f}s detect={d.t_detect:7.3f}s "
             f"alarm-to-detect={(d.t_detect - d.t_onset) * 1000:.0f} ms"
         )
+    try:
+        None if args.no_classifier else build_classifier_stage(cfg.classifier)
+    except (ConfigError, RuntimeError) as err:
+        print(err, file=sys.stderr)
+        return 2
     print("Pipeline run (virtual clock, console display):")
     pipeline = Pipeline(
         cfg,

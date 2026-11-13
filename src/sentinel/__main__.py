@@ -34,7 +34,24 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     check = sub.add_parser("check-config", help="validate a config file and print its hash")
     check.add_argument("--config", default=None, help="path to a YAML config")
+    models = sub.add_parser("check-models", help="check the model files and every class name")
+    models.add_argument("--config", default=None, help="path to a YAML config")
     return parser
+
+
+def _check_models(config_path: str | None) -> int:
+    from sentinel.classify.yamnet import YamnetClassifier
+
+    try:
+        cfg = load_config(config_path)
+        clf = YamnetClassifier(cfg.classifier)
+    except (ConfigError, RuntimeError) as err:
+        print(err, file=sys.stderr)
+        return 2
+    print(f"model ok: window {clf.window_len} samples ({clf.window_s:.3f} s), 521 classes")
+    for cls, idx in clf.class_indices.items():
+        print(f"  {cls.value}: " + ", ".join(f"{clf.class_names[i]} [{i}]" for i in idx))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"config ok, hash {cfg.config_hash()}")
         return 0
+    if args.command == "check-models":
+        return _check_models(args.config)
     parser.print_help()
     return 0
 

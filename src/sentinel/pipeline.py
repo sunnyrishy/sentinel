@@ -17,6 +17,7 @@ from collections.abc import Callable
 
 from sentinel.adapters.base import AsyncDisplay
 from sentinel.buffer import RingBuffer
+from sentinel.classify.yamnet import ClassifierStage
 from sentinel.config import SentinelConfig
 from sentinel.gate.tonal import GateParams, GateState, process
 from sentinel.metrics import Metrics
@@ -112,6 +113,7 @@ class Pipeline:
         on_latency: Callable[[str, float, float], None] | None = None,
         record: bool = False,
         on_detection: Callable[[Detection], None] | None = None,
+        classifier: ClassifierStage | None = None,
     ) -> None:
         self.cfg = cfg
         self.source = source
@@ -122,6 +124,7 @@ class Pipeline:
         self.on_detection = on_detection
         self.ring = RingBuffer(cfg.buffer.seconds, cfg.audio.sample_rate)
         self.gate = GateStage(cfg) if cfg.gate.enabled else None
+        self.classifier = classifier
         self.clock: Clock = time.monotonic
         self._recorder = (
             WavRecorder(cfg.recording.dir) if (record or cfg.recording.enabled) else None
@@ -132,6 +135,7 @@ class Pipeline:
         self._last_shown: dict[AlertClass, float] = {}
         self._active: tuple[str, float] | None = None  # (event_id, clear time)
         self._gate_q: queue.Queue[AudioFrame | None] = queue.Queue(maxsize=200)
+        self._clf_q: queue.Queue[AudioFrame | None] = queue.Queue(maxsize=200)
         self._policy_q: queue.Queue[Detection | None] = queue.Queue()
 
     # Interim alert handling. Replaced by the full policy state machine in M4. ------------------
@@ -167,8 +171,11 @@ class Pipeline:
         if self._recorder:
             self._recorder.write(frame.samples)
 
-    def _stages(self, frame: AudioFrame) -> list[Detection]:
+    def _gate_dets(self, frame: AudioFrame) -> list[Detection]:
         return self.gate.step(frame, self.clock) if self.gate else []
+
+    def _clf_dets(self, frame: AudioFrame) -> list[Detection]:
+        return self.classifier.step(frame, self.ring, self.clock) if self.classifier else []
 
     # Synchronous mode --------------------------------------------------------------------------
     def run_sync(self) -> None:
@@ -179,7 +186,7 @@ class Pipeline:
         for frame in self.source.frames():
             clock.mark(frame.t_end)
             self._ingest(frame)
-            for det in self._stages(frame):
+            for det in self._gate_dets(frame) + self._clf_dets(frame):
                 self._handle_detection(det)
             self._tick()
         self._finish()
@@ -196,6 +203,7 @@ class Pipeline:
         )
         workers = [
             threading.Thread(target=self._gate_worker, name="gate", daemon=True),
+            threading.Thread(target=self._clf_worker, name="classifier", daemon=True),
             threading.Thread(target=self._policy_worker, name="policy", daemon=True),
         ]
         for w in workers:
@@ -211,6 +219,7 @@ class Pipeline:
                     break
         finally:
             self._gate_q.put(None)
+            self._clf_q.put(None)
             for w in workers:
                 w.join(timeout=5)
             self._finish()
@@ -220,13 +229,14 @@ class Pipeline:
         self.source.close()
 
     def _offer(self, frame: AudioFrame) -> None:
-        try:
-            self._gate_q.put_nowait(frame)
-        except queue.Full:
-            with contextlib.suppress(queue.Empty):
-                self._gate_q.get_nowait()
-            self.metrics.count_drop()
-            self._gate_q.put_nowait(frame)
+        for q in (self._gate_q, self._clf_q):
+            try:
+                q.put_nowait(frame)
+            except queue.Full:
+                with contextlib.suppress(queue.Empty):
+                    q.get_nowait()
+                self.metrics.count_drop()
+                q.put_nowait(frame)
 
     def _gate_worker(self) -> None:
         while True:
@@ -234,10 +244,20 @@ class Pipeline:
             if frame is None:
                 self._policy_q.put(None)
                 return
-            for det in self._stages(frame):
+            for det in self._gate_dets(frame):
+                self._policy_q.put(det)
+
+    def _clf_worker(self) -> None:
+        while True:
+            frame = self._clf_q.get()
+            if frame is None:
+                self._policy_q.put(None)
+                return
+            for det in self._clf_dets(frame):
                 self._policy_q.put(det)
 
     def _policy_worker(self) -> None:
+        ended = 0  # one end marker from each detection worker
         while True:
             try:
                 det = self._policy_q.get(timeout=0.05)
@@ -245,7 +265,10 @@ class Pipeline:
                 self._tick()
                 continue
             if det is None:
-                return
+                ended += 1
+                if ended >= 2:
+                    return
+                continue
             self._handle_detection(det)
             self._tick()
 

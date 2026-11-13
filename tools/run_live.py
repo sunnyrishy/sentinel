@@ -12,6 +12,7 @@ import sys
 
 from sentinel.adapters import make_display
 from sentinel.adapters.audio_mic import AudioMicSource, list_devices
+from sentinel.classify.yamnet import build_classifier_stage
 from sentinel.config import ConfigError, load_config
 from sentinel.metrics import CpuMeter, Metrics
 from sentinel.pipeline import Pipeline
@@ -30,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--display", default=None, help="override display.adapter")
     parser.add_argument("--record", action="store_true", help="save raw audio to data/recordings/")
     parser.add_argument("--duration", type=float, default=None, help="stop after N seconds")
+    parser.add_argument("--no-classifier", action="store_true", help="gate only, no model needed")
     parser.add_argument("--list-devices", action="store_true")
     args = parser.parse_args(argv)
     if args.list_devices:
@@ -38,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cfg = load_config(args.config)
         display = make_display(cfg, args.display)
+        stage = None if args.no_classifier else build_classifier_stage(cfg.classifier)
         metrics = Metrics()
         source = AudioMicSource(
             parse_device(args.device) if args.device else cfg.audio.device,
@@ -54,7 +57,9 @@ def main(argv: list[str] | None = None) -> int:
             f"alarm-to-display {alarm_to_display_ms:.0f} ms (software only)"
         )
 
-    pipeline = Pipeline(cfg, source, display, metrics, on_latency=report, record=args.record)
+    pipeline = Pipeline(
+        cfg, source, display, metrics, on_latency=report, record=args.record, classifier=stage
+    )
     signal.signal(signal.SIGINT, lambda *_: pipeline.stop())
     cpu = CpuMeter()
     print("Listening on the live microphone. Ctrl+C to stop. Assistive alert, not a safety device.")

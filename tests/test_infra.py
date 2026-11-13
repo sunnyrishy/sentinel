@@ -37,6 +37,15 @@ def test_ring_buffer_latest_before_and_after_wrap() -> None:
     assert rb.total_written == 12 and rb.t_end == 2.0
 
 
+def test_ring_buffer_window_is_aligned_to_a_stream_position() -> None:
+    rb = RingBuffer(seconds=1.0, sample_rate=10)  # capacity 10
+    rb.write(np.arange(25, dtype=np.float32), 1.0)  # writer is ahead: holds samples 15..24
+    assert rb.window(20, 3).tolist() == [17, 18, 19]
+    assert rb.window(25, 10).tolist() == list(range(15, 25))
+    assert rb.window(18, 6).tolist() == [0, 0, 0, 15, 16, 17]  # oldest part has been overwritten
+    assert rb.window(100, 2).tolist() == [23, 24]  # clamped to what exists
+
+
 def test_ring_buffer_oversized_write_keeps_tail() -> None:
     rb = RingBuffer(seconds=1.0, sample_rate=10)
     rb.write(np.arange(25, dtype=np.float32), 1.0)
