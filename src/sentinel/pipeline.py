@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import logging
 import queue
 import threading
 import time
@@ -33,6 +34,7 @@ from sentinel.policy import (
 from sentinel.recording import WavRecorder
 from sentinel.types import Alert, AudioFrame, AudioSource, Detection, DisplayAdapter
 
+log = logging.getLogger("sentinel.pipeline")
 Clock = Callable[[], float]
 Listener = Callable[[dict[str, Any]], None]
 
@@ -64,11 +66,18 @@ class _SyncDisplay:
         return self._inner.capabilities()
 
     def show(self, alert: Alert) -> None:
-        self._inner.show(alert)
+        try:
+            self._inner.show(alert)
+        except Exception:
+            log.exception("display show failed")  # a broken display must never stop detection
+            return
         self._on_shown(alert.event_id, self._clock())
 
     def clear(self, event_id: str | None = None) -> None:
-        self._inner.clear(event_id)
+        try:
+            self._inner.clear(event_id)
+        except Exception:
+            log.exception("display clear failed")
 
     def close(self) -> None:
         self._inner.close()
@@ -245,7 +254,15 @@ class Pipeline:
 
     # Threaded mode -----------------------------------------------------------------------------
     def run(self, max_seconds: float | None = None) -> None:
-        """Threaded wall-clock run. Blocks until the source ends, stop() or max_seconds."""
+        """Threaded wall-clock run. Blocks until the source ends, stop() or max_seconds.
+
+        An unpaced source (a file replayed as fast as possible) has audio time that runs far ahead
+        of the wall clock, so the policy's timers would be meaningless. It is run on the virtual
+        clock instead, which gives the same stages and a deterministic result.
+        """
+        if getattr(self.source, "lossless", False):
+            self.run_sync()
+            return
         self.clock = time.monotonic
         self.display = AsyncDisplay(
             self._inner,
@@ -283,7 +300,16 @@ class Pipeline:
         self.source.close()
 
     def _offer(self, frame: AudioFrame) -> None:
+        lossless = bool(getattr(self.source, "lossless", False))
         for q in (self._gate_q, self._clf_q):
+            if lossless:
+                while not self._stop.is_set():  # backpressure: wait for the worker to catch up
+                    try:
+                        q.put(frame, timeout=0.1)
+                        break
+                    except queue.Full:
+                        continue
+                continue
             try:
                 q.put_nowait(frame)
             except queue.Full:

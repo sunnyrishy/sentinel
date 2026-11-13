@@ -106,6 +106,11 @@ def main(argv: list[str] | None = None) -> int:
         pipeline.run(max_seconds=args.duration)
     finally:
         runtime.close()
+    if metrics.dropped_frames:
+        print(
+            f"WARNING: {metrics.dropped_frames} audio frames were dropped because processing "
+            "could not keep up. Detections may have been missed. Try --no-classifier."
+        )
     print(f"Summary: {metrics.summary()}  cpu={cpu.usage():.0%} of one core")
     return 0
 

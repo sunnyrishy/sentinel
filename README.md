@@ -6,6 +6,14 @@ Sound-to-sight alerts for workers whose hearing is blocked by protection or redu
 
 Built for the Worn smart glasses hackathon (Nov 20 to 21, 2026). The core runs and is fully tested on a laptop. Everything that depends on the MicroLumin glasses is behind two adapter slots, with stubs, until the SDK is known. The spec is in [`docs/SPEC.md`](docs/SPEC.md).
 
+![Sentinel dashboard with the glasses simulator showing BACKUP ALARM](docs/img/dashboard.png)
+
+*The dashboard in demo replay mode (note the RECORDING badge). The black box is the glasses-view simulator.*
+
+![Kiosk mode: full-screen glasses simulator with a stats strip](docs/img/kiosk.png)
+
+For judges: [`docs/ONE_PAGER.md`](docs/ONE_PAGER.md) is a one-page summary with the claims that are verified and the numbers still to fill in.
+
 ## How it works
 
 ```

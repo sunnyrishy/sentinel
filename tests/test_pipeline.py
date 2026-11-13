@@ -261,3 +261,30 @@ def test_run_replay_tool_writes_events_to_sqlite(tmp_path: Path, capsys) -> None
 
     rows = EventLog(db).list()
     assert len(rows) == 1 and rows[0]["stage"] == "gate" and rows[0]["source"] == "synthetic"
+
+
+def test_threaded_run_over_a_fast_file_source_loses_no_frames(tmp_path: Path) -> None:
+    """Regression: an unpaced source used to overflow the queues and silently drop audio."""
+    sc = Scenario.model_validate(
+        {
+            "name": "fast",
+            "duration_s": 200,
+            "seed": 9,
+            "noise": {"type": "pink", "level_dbfs": -30},
+            "events": [
+                {
+                    "kind": "tonal_alarm",
+                    "start_s": 20 + 40 * i,
+                    "duration_s": 6,
+                    "snr_db": 8,
+                    "label": "reversing_alarm",
+                }
+                for i in range(4)
+            ],
+        }
+    )
+    rendered = render(sc)
+    metrics, display = Metrics(), RecordingDisplay()
+    Pipeline(cfg_with(tmp_path), AudioFileSource(rendered.audio), display, metrics).run()
+    assert metrics.dropped_frames == 0
+    assert len(display.shown) == 4

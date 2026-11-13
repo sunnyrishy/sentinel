@@ -56,6 +56,8 @@ class AudioFileSource:
         self._clock = clock
         self._closed = False
         self.started_at: float | None = None  # clock value when frames() began
+        # An unpaced file source must not lose frames: the consumer applies backpressure instead.
+        self.lossless = not realtime
 
     @property
     def duration_s(self) -> float:

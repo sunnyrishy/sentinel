@@ -169,3 +169,16 @@ def test_synth_mix_hits_requested_snr() -> None:
     assert snr == pytest.approx(10, abs=0.3)
     assert res.onset_s == pytest.approx(5.0, abs=0.01)
     assert 10.5 < res.end_s < 11.5
+
+
+@pytest.mark.parametrize("freq", [800, 812, 3000, 2990])
+def test_detects_tones_right_at_the_band_edges(freq: int) -> None:
+    sig = place(synth.tonal_alarm(freq, 70, 6, harmonics=2), 5.0)
+    audio = synth.mix(sig, synth.noise("pink", DUR, seed=3), 10).audio
+    assert any(not d.provisional for d in run_gate(audio))
+
+
+@pytest.mark.parametrize("freq", [650, 3300, 5000])
+def test_still_ignores_tones_clearly_outside_the_band(freq: int) -> None:
+    sig = place(synth.tonal_alarm(freq, 70, 6), 5.0)
+    assert run_gate(synth.mix(sig, synth.noise("pink", DUR, seed=3), 10).audio) == []

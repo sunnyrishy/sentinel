@@ -105,8 +105,10 @@ def analyze_frames(
     window = np.hanning(params.n_fft + 1)[:-1].astype(np.float32)
     spec = np.abs(np.fft.rfft(frames * window, axis=1)).astype(np.float64)
     bin_hz = params.sample_rate / params.n_fft
-    lo = max(1, int(np.ceil(params.band_hz[0] / bin_hz)))
-    hi = min(n_bins - 2, int(np.floor(params.band_hz[1] / bin_hz)))
+    # Search one bin beyond each band edge, then require the interpolated peak frequency to be in
+    # the band. A tone sitting right on an edge has its true peak just outside the in-band bins.
+    lo = max(1, int(np.floor(params.band_hz[0] / bin_hz)))
+    hi = min(n_bins - 2, int(np.ceil(params.band_hz[1] / bin_hz)))
     band = spec[:, lo : hi + 1]
     median = np.median(band, axis=1)
     k = np.argmax(band, axis=1) + lo
@@ -122,7 +124,9 @@ def analyze_frames(
     denom = a - 2 * b + c
     delta = np.where(np.abs(denom) > 1e-9, 0.5 * (a - c) / np.where(denom == 0, 1, denom), 0.0)
     freq = (k + np.clip(delta, -0.5, 0.5)) * bin_hz
-    return tonal, freq, ppm_db
+    half = 0.5 * bin_hz
+    in_band = (freq >= params.band_hz[0] - half) & (freq <= params.band_hz[1] + half)
+    return tonal & in_band, freq, ppm_db
 
 
 def _score(mean_ppm_db: float, params: GateParams) -> float:
