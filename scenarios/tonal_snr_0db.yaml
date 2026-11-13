@@ -1,0 +1,7 @@
+# SYNTHETIC audio. Same alarm at 0 dB SNR, the example from the spec.
+name: tonal_snr_0db
+duration_s: 60
+seed: 7
+noise: {type: pink, level_dbfs: -30}
+events:
+  - {kind: tonal_alarm, freq_hz: 1900, pulses_per_min: 70, start_s: 10, duration_s: 6, snr_db: 0, label: reversing_alarm}

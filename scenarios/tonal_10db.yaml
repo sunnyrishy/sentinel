@@ -1,0 +1,7 @@
+# SYNTHETIC audio. A 1900 Hz, 70 pulses per minute backup alarm at +10 dB SNR in pink noise.
+name: tonal_10db
+duration_s: 30
+seed: 7
+noise: {type: pink, level_dbfs: -30}
+events:
+  - {kind: tonal_alarm, freq_hz: 1900, pulses_per_min: 70, start_s: 10, duration_s: 6, snr_db: 10, label: reversing_alarm}

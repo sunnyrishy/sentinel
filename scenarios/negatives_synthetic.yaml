@@ -1,0 +1,10 @@
+# SYNTHETIC negatives for the gate: a continuous tone present from the start of the stream,
+# a lone 0.1 s beep and a click. No event carries a label, so any alert raised here is false.
+name: negatives_synthetic
+duration_s: 60
+seed: 11
+noise: {type: pink, level_dbfs: -30}
+events:
+  - {kind: tone, freq_hz: 1900, start_s: 0, duration_s: 13, snr_db: 10}
+  - {kind: beep, freq_hz: 1900, start_s: 25, duration_s: 0.1, snr_db: 10}
+  - {kind: click, start_s: 40, snr_db: 10}
