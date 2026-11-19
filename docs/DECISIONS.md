@@ -166,3 +166,6 @@ After the organizers published the scoring rubric (Understands you, Adaptability
 
 ## D48. Test alert (Nov 19)
 `POST /api/test-alert` shows an alert with event id `e_test` through the real display adapter and clears it after 3 s. It writes nothing to the event log.
+
+## D49. Project locked as MySoundprint (Nov 19)
+After the scoring rubric and an idea comparison, the project is MySoundprint (`docs/MYSOUNDPRINT.md`): a personal sound attention layer built on the Sentinel engine. The spec's three-class limit for version 1 is lifted for this project; the sound catalog is config-defined. Spec rules that stay: offline at runtime, no raw audio stored by default, honest numbers only, no direction claims, hardware behind the two adapters. New capabilities (levels, named profiles, context trigger, feedback, sound memory, privacy screen, experimental Sound DNA) are built before the event. Sound DNA ships only if it passes a real test.
