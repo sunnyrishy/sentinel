@@ -17,6 +17,19 @@ These come from Chinese-language press and reviews of the MLVISION M6 series (Te
 | Weaker in extreme light, battery compromises | Sohu review | Medium | UNCONFIRMED |
 | Another vendor sells an unrelated "M6 AR Glass" on Android 10. Ignore its specs. | spec | None | n/a |
 
+## Official event facts (Luma page and organizer blast, Nov 19)
+
+These are confirmed by the organizers' own page. They answer some questions and leave the SDK ones open.
+
+- Hardware: MicroLumin M6 glasses are handed out to teams at about 8:45 PM Friday and returned Saturday about 6:00 PM. The exact display module is not stated.
+- SDK: "SDK access and docs shared before the event." Not yet received by us. A walkthrough is at 7:35 PM Friday and SDK help is available during the first 90 minutes of hacking (9:00 to 10:30 PM). A hands-on SDK and hardware workshop is Saturday at 10:00 AM.
+- Requirement: the project must run on the M6 glasses. An average below 1 on "Works on the glasses" makes a team ineligible for prizes.
+- Scoring: Understands you, Adaptability (phone-to-glasses flow), Ergonomics, Works on the glasses, Impact and pitch. 0 to 2 each.
+- Teams of 4 to 5 are mandatory and assigned on site. Code freeze and submissions are Saturday at 2:00 PM. Finalists demo on stage for 3 minutes, worn by the team, plus 2 minutes of Q&A.
+- Still unknown: SDK form, display size and update rate, glasses microphone access, connectivity, pre-built code rules, own mics and speaker, loud sounds at the table.
+
+See `docs/EVENT_PLAN.md` for the plan built from these.
+
 ## Integration slots
 
 Every unknown has a slot, a safe default and a place to record the answer.
@@ -82,7 +95,7 @@ The spec lists these to send through the Luma event page (message the hosts), as
 - [ ] Audio: does our app receive the glasses' microphone stream (raw PCM, sample rate, channels)? How many mics are there?
 - [ ] Connectivity: is a phone required, or can a laptop connect directly? Is Wi-Fi at the venue reliable, and can we use our own hotspot?
 - [ ] Typical latency from our app to text appearing on the display?
-- [ ] Is there a simulator or loaner unit so we can test before Nov 20?
+- [ ] Is there a simulator or loaner unit so we can test before Nov 20? (Hardware is handed out Friday 8:45 PM. Ask for a simulator or the SDK sample app now.)
 - [ ] Rules: is pre-built code allowed, are open-source libraries and pretrained models allowed, and can we bring our own mics and a speaker?
 - [ ] Demo: is playing loud alarm sounds at our table allowed during judging?
 

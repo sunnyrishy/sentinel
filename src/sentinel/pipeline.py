@@ -31,6 +31,7 @@ from sentinel.policy import (
     ShowAlert,
     UpdateEvent,
 )
+from sentinel.profile import ProfileStore
 from sentinel.recording import WavRecorder
 from sentinel.types import Alert, AudioFrame, AudioSource, Detection, DisplayAdapter
 
@@ -86,12 +87,21 @@ class _SyncDisplay:
 class GateStage:
     """Stateful wrapper around the pure gate. Stamps t_detect with the clock so compute counts."""
 
-    def __init__(self, cfg: SentinelConfig) -> None:
+    def __init__(self, cfg: SentinelConfig, profile: ProfileStore | None = None) -> None:
         self.params = GateParams.from_config(cfg.gate, cfg.audio.sample_rate)
         self.state = GateState()
+        self.profile = profile
+
+    def _effective_params(self) -> GateParams:
+        """Sensitivity above 1 lowers the peak-to-median threshold, below 1 raises it."""
+        if self.profile is None or self.profile.sensitivity == 1.0:
+            return self.params
+        return dataclasses.replace(
+            self.params, peak_to_median_db=self.params.peak_to_median_db / self.profile.sensitivity
+        )
 
     def step(self, frame: AudioFrame, clock: Clock) -> list[Detection]:
-        dets = process(self.state, frame.samples, frame.t_end, self.params)
+        dets = process(self.state, frame.samples, frame.t_end, self._effective_params())
         if not dets:
             return dets
         now = clock()
@@ -111,6 +121,7 @@ class Pipeline:
         classifier: ClassifierStage | None = None,
         eventlog: EventLog | None = None,
         source_label: str = "live",
+        profile: ProfileStore | None = None,
     ) -> None:
         self.cfg = cfg
         self.source = source
@@ -123,8 +134,11 @@ class Pipeline:
         self.eventlog = eventlog if eventlog is not None else EventLog(":memory:")
         self._elog = AsyncEventLog(self.eventlog)
         self.ring = RingBuffer(cfg.buffer.seconds, cfg.audio.sample_rate)
-        self.gate = GateStage(cfg) if cfg.gate.enabled else None
+        self.profile = profile
+        self.gate = GateStage(cfg, profile) if cfg.gate.enabled else None
         self.classifier = classifier
+        if classifier is not None and profile is not None:
+            classifier.profile = profile
         self.policy = Policy(cfg.policy, cfg.gate.confirm_timeout_s, self.eventlog.next_id)
         self.clock: Clock = time.monotonic
         self._config_hash = cfg.config_hash()
@@ -139,6 +153,14 @@ class Pipeline:
         self._clf_q: queue.Queue[AudioFrame | None] = queue.Queue(maxsize=200)
         self._policy_q: queue.Queue[Detection | None] = queue.Queue()
 
+    def set_profile(self, profile: ProfileStore) -> None:
+        """Attach a live profile after construction (the runtime does this)."""
+        self.profile = profile
+        if self.gate is not None:
+            self.gate.profile = profile
+        if self.classifier is not None:
+            self.classifier.profile = profile
+
     def add_listener(self, callback: Listener) -> None:
         """Receive WebSocket-protocol 'event' messages as they happen. Alert and clear messages come
         from the display adapter (display_sim or display_bridge), not from the pipeline."""
@@ -151,6 +173,8 @@ class Pipeline:
 
     # Policy output -> display, log, listeners -------------------------------------------------
     def _handle_detection(self, det: Detection) -> None:
+        if self.profile is not None and not self.profile.is_enabled(det.alert_class):
+            return  # this wearer turned this sound off: no alert and no event
         if self.on_detection:
             self.on_detection(det)
         self._apply(self.policy.on_detection(det, self.clock()))

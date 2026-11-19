@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sim", action="store_true", help="also show alerts in the browser simulator"
     )
+    parser.add_argument(
+        "--lan",
+        action="store_true",
+        help="let phones on the same network open the page (no password)",
+    )
     parser.add_argument("--no-dashboard", action="store_true", help="never start the dashboard")
     parser.add_argument("--db", default=None, help="event log path (default: config eventlog.path)")
     parser.add_argument("--record", action="store_true", help="save raw audio to data/recordings/")
@@ -62,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.sim:
             display_name = (display_name or cfg.display.adapter) + ",sim"
         runtime = start_runtime(
-            cfg, "live", display_name, args.db, use_dashboard=not args.no_dashboard
+            cfg, "live", display_name, args.db, use_dashboard=not args.no_dashboard, lan=args.lan
         )
         stage = None if args.no_classifier else build_classifier_stage(cfg.classifier)
         metrics = Metrics()
@@ -100,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
     print("Sentinel is an assistive alert, not a certified safety device.")
     if runtime.url:
         print(f"Dashboard and simulator: {runtime.url}")
+        for u in runtime.phone_urls:
+            print(f"Phone view (same network, no password): {u}")
     if args.record:
         print("Recording raw audio to data/recordings/ (--record)")
     try:

@@ -156,6 +156,7 @@ class ClassifierStage:
         self._history: dict[AlertClass, deque[tuple[bool, float]]] = {
             c: deque(maxlen=cfg.smoothing.windows) for c in self._thresholds
         }
+        self.profile = None  # optional ProfileStore: sensitivity scales every threshold
         self._seen = 0  # samples seen by this stage, i.e. position in the stream
         self._last_total = 0
         self.last_scores: dict[AlertClass, float] = {}
@@ -187,9 +188,10 @@ class ClassifierStage:
         self.last_scores = scores
         out: list[Detection] = []
         window_s = self.clf.window_len / SAMPLE_RATE
+        sens = self.profile.sensitivity if self.profile is not None else 1.0
         for cls, score in scores.items():
             hist = self._history[cls]
-            hist.append((score >= self._thresholds[cls], t_window_end))
+            hist.append((score >= min(1.0, self._thresholds[cls] / sens), t_window_end))
             positives = [t for ok, t in hist if ok]
             if len(positives) >= self.cfg.smoothing.hits:
                 out.append(

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Sentinel phone view</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --muted:#8b96a5; --accent:#3dff7a; --warn:#ffb84d; --ok:#4cd08a; --bad:#ff6b6b; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 14px 16px calc(24px + env(safe-area-inset-bottom)); }
+  header { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  h1 { font-size:20px; margin:0; flex:1; }
+  .badge { font-size:11px; font-weight:700; letter-spacing:.08em; padding:3px 9px; border-radius:999px; border:1px solid var(--ok); color:var(--ok); }
+  .badge.rec { background:var(--warn); border-color:var(--warn); color:#111; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); }
+  .dot.on { background:var(--ok); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 10px; font-weight:600; }
+  #alert { min-height:160px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;
+    background:#000; border-radius:14px; border:1px solid var(--line); color:var(--muted); padding:16px; }
+  #alert.active { border:2px solid #1f6b3a; color:var(--accent); cursor:pointer; }
+  #alert.active.blink { animation: blink 1s steps(1,end) infinite; }
+  #alert .l1 { font:700 9vw/1.1 ui-monospace,"SF Mono",Menlo,Consolas,monospace; letter-spacing:.03em; text-transform:uppercase; }
+  #alert .l2 { font:600 5.5vw/1.2 ui-monospace,Menlo,Consolas,monospace; opacity:.9; margin-top:6px; text-transform:uppercase; }
+  @media (min-width:520px) { #alert .l1 { font-size:46px; } #alert .l2 { font-size:28px; } }
+  @keyframes blink { 0%,55% { opacity:1 } 56%,100% { opacity:.2 } }
+  .pin { position:sticky; top:0; z-index:5; background:var(--bg); padding:6px 0 10px; margin:0 -16px; padding-left:16px; padding-right:16px; }
+  #quiet { font-size:18px; }
+  button { font:inherit; color:var(--text); background:transparent; border:1px solid var(--line); border-radius:12px; padding:12px 14px; min-height:48px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#04210f; border-color:var(--accent); font-weight:700; width:100%; margin-top:10px; }
+  button:disabled { opacity:.45; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:0; }
+  .switch { position:relative; width:52px; height:30px; flex:none; }
+  .switch input { opacity:0; width:100%; height:100%; position:absolute; margin:0; cursor:pointer; }
+  .switch span { position:absolute; inset:0; background:#39424f; border-radius:999px; transition:.15s; }
+  .switch span::after { content:""; position:absolute; top:3px; left:3px; width:24px; height:24px; background:#fff; border-radius:50%; transition:.15s; }
+  .switch input:checked + span { background:var(--ok); }
+  .switch input:checked + span::after { transform:translateX(22px); }
+  input[type=range] { width:100%; accent-color: var(--accent); height:34px; }
+  .ends { display:flex; justify-content:space-between; color:var(--muted); font-size:12.5px; }
+  .ev { display:grid; grid-template-columns:auto 1fr auto; gap:4px 10px; padding:8px 0; border-bottom:1px solid var(--line); font-size:14.5px; }
+  .ev:last-child { border-bottom:0; }
+  .muted { color:var(--muted); } .ok { color:var(--ok); } .warn { color:var(--warn); }
+  small { color:var(--muted); display:block; margin-top:8px; }
+  #msg { min-height:20px; color:var(--muted); font-size:13.5px; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Sentinel</h1>
+    <span id="source" class="badge">LIVE</span>
+    <span id="conn" class="dot" title="connection"></span>
+  </header>
+
+  <div class="pin">
+  <div id="alert" role="status" aria-live="assertive">
+    <div id="quiet">All quiet</div>
+    <div class="l1"></div><div class="l2"></div>
+  </div>
+  <button id="ack" class="primary" disabled>Tap to acknowledge</button>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <h2>For you</h2>
+    <div class="row"><span>Backup alarm</span><label class="switch"><input type="checkbox" data-class="reversing_alarm" checked><span></span></label></div>
+    <div class="row"><span>Vehicle horn</span><label class="switch"><input type="checkbox" data-class="vehicle_horn" checked><span></span></label></div>
+    <div class="row"><span>Fire alarm</span><label class="switch"><input type="checkbox" data-class="fire_alarm" checked><span></span></label></div>
+    <div style="padding-top:12px;">
+      <div class="row" style="border:0;padding-bottom:0;"><span>Sensitivity</span><span id="sensVal" class="muted">1.0</span></div>
+      <input id="sens" type="range" min="0.5" max="1.5" step="0.05" value="1">
+      <div class="ends"><span>Fewer false alerts</span><span>Catch more</span></div>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h2>Check the chain</h2>
+    <button id="test" style="width:100%;">Send a test alert to the glasses</button>
+    <small>Pushes a clearly labeled test alert through the same display path as a real one.</small>
+  </div>
+
+  <div class="card">
+    <h2>Recent</h2>
+    <div id="events"><div class="muted">No events yet.</div></div>
+  </div>
+
+  <small>Sentinel is an assistive alert, not a certified safety device.</small>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const LABEL = { reversing_alarm: "Backup alarm", vehicle_horn: "Vehicle horn", fire_alarm: "Fire alarm" };
+  const box = $("alert"), l1 = box.querySelector(".l1"), l2 = box.querySelector(".l2"), quiet = $("quiet"), ackBtn = $("ack");
+  let activeId = null, timer = null;
+  const events = new Map();
+
+  function show(m) {
+    clearTimeout(timer); activeId = m.event_id;
+    l1.textContent = m.line1 || ""; l2.textContent = m.line2 || ""; quiet.hidden = true;
+    box.classList.add("active"); box.classList.toggle("blink", !!m.blink);
+    ackBtn.disabled = m.event_id === "e_test"; ackBtn.textContent = "Tap to acknowledge";
+    if (navigator.vibrate) navigator.vibrate([250, 120, 250]);
+    timer = setTimeout(() => clear(null), Number(m.ttl_ms) || 3000);
+  }
+  function clear(id) {
+    if (id && id !== activeId) return;
+    clearTimeout(timer); activeId = null; l1.textContent = ""; l2.textContent = ""; quiet.hidden = false;
+    box.classList.remove("active", "blink"); ackBtn.disabled = true;
+  }
+  async function ack(id) {
+    if (!id || id === "e_test") return;
+    try { const r = await fetch("/api/events/" + encodeURIComponent(id) + "/ack", { method: "POST" }); if (r.ok) { ackBtn.textContent = "Acknowledged"; ackBtn.disabled = true; } } catch (e) {}
+  }
+  box.addEventListener("click", () => ack(activeId));
+  ackBtn.addEventListener("click", () => ack(activeId));
+
+  function renderEvents() {
+    const list = Array.from(events.values()).sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, 6);
+    const host = $("events"); host.replaceChildren();
+    if (!list.length) { const d = document.createElement("div"); d.className = "muted"; d.textContent = "No events yet."; host.append(d); return; }
+    for (const r of list) {
+      const row = document.createElement("div"); row.className = "ev";
+      const t = document.createElement("span"); t.className = "muted"; t.textContent = r.ts_wall ? new Date(r.ts_wall).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+      const c = document.createElement("span"); c.textContent = LABEL[r.alert_class] || r.alert_class || "";
+      const s = document.createElement("span");
+      if (r.cancel_reason) { s.className = "warn"; s.textContent = r.cancel_reason === "timeout" ? "cancelled" : r.cancel_reason; }
+      else if (r.confirmed) { s.className = "ok"; s.textContent = r.acknowledged ? "acknowledged" : "confirmed"; }
+      else { s.className = "muted"; s.textContent = "checking"; }
+      row.append(t, c, s); host.append(row);
+    }
+  }
+  function merge(p) { const prev = events.get(p.id) || {}; const n = Object.assign({}, prev, p); if (p.acknowledged === true) n.acknowledged = 1; if (p.confirmed === true) n.confirmed = 1; events.set(n.id, n); renderEvents(); }
+  async function loadEvents() { try { (await (await fetch("/api/events?limit=6")).json()).forEach((r) => events.set(r.id, r)); renderEvents(); } catch (e) {} }
+  async function loadStatus() { try { const s = await (await fetch("/api/status")).json(); const b = $("source"); b.textContent = s.recording_badge ? "RECORDING" : "LIVE"; b.className = "badge" + (s.recording_badge ? " rec" : ""); } catch (e) {} }
+
+  // ---- profile ("for you") -------------------------------------------------------------------
+  let saveTimer = null;
+  function applyProfile(p) {
+    document.querySelectorAll("input[data-class]").forEach((i) => { i.checked = p.enabled[i.dataset.class] !== false; });
+    $("sens").value = p.sensitivity; $("sensVal").textContent = Number(p.sensitivity).toFixed(2);
+  }
+  async function loadProfile() { try { applyProfile(await (await fetch("/api/profile")).json()); } catch (e) {} }
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const enabled = {}; document.querySelectorAll("input[data-class]").forEach((i) => { enabled[i.dataset.class] = i.checked; });
+      try {
+        const r = await fetch("/api/profile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, sensitivity: Number($("sens").value) }) });
+        $("msg").textContent = r.ok ? "Saved. Applies right away." : "Could not save: " + ((await r.json()).detail || r.status);
+      } catch (e) { $("msg").textContent = "Offline. Not saved."; }
+    }, 250);
+  }
+  document.querySelectorAll("input[data-class]").forEach((i) => i.addEventListener("change", save));
+  $("sens").addEventListener("input", () => { $("sensVal").textContent = Number($("sens").value).toFixed(2); save(); });
+  $("test").addEventListener("click", async () => {
+    $("msg").textContent = "Sending test alert...";
+    try { const r = await fetch("/api/test-alert", { method: "POST" }); $("msg").textContent = r.ok ? "Test alert sent to the display." : "Test alerts are not available."; } catch (e) { $("msg").textContent = "Offline."; }
+  });
+
+  // ---- WebSocket ------------------------------------------------------------------------------
+  let retry = 500;
+  function connect() {
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.onopen = () => { retry = 500; $("conn").classList.add("on"); loadEvents(); loadStatus(); loadProfile(); };
+    ws.onclose = () => { $("conn").classList.remove("on"); setTimeout(connect, retry); retry = Math.min(retry * 2, 5000); };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === "alert") show(m); else if (m.type === "clear") clear(m.event_id);
+      else if (m.type === "event" && m.event) merge(m.event);
+      else if (m.type === "profile") applyProfile(m);
+    };
+  }
+  loadEvents(); loadStatus(); loadProfile(); connect();
+})();
+</script>
+</body>
+</html>

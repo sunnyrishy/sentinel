@@ -13,14 +13,15 @@ import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 
 from sentinel.config import SentinelConfig
 from sentinel.eventlog import EventLog
+from sentinel.profile import ProfileError, ProfileStore
 
 STATIC_DIR = Path(__file__).parent / "static"
 Message = dict[str, Any]
@@ -103,6 +104,8 @@ def create_app(
     hub: Hub,
     status: Callable[[], dict[str, Any]] = default_status,
     stats_interval_s: float = 2.0,
+    profile: ProfileStore | None = None,
+    test_alert: Callable[[], None] | None = None,
 ) -> FastAPI:
     async def stats_loop() -> None:
         while True:
@@ -123,6 +126,32 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/phone", response_class=HTMLResponse)
+    def phone() -> str:
+        return (STATIC_DIR / "phone.html").read_text(encoding="utf-8")
+
+    @app.get("/api/profile")
+    def get_profile() -> dict[str, Any]:
+        return (profile or ProfileStore()).get()
+
+    @app.post("/api/profile")
+    def set_profile(update: Annotated[dict[str, Any], Body()]) -> dict[str, Any]:
+        if profile is None:
+            raise HTTPException(status_code=503, detail="profile is not enabled")
+        try:
+            snapshot = profile.update(update)
+        except ProfileError as err:
+            raise HTTPException(status_code=422, detail=str(err)) from err
+        hub.publish({"type": "profile", **snapshot})
+        return snapshot
+
+    @app.post("/api/test-alert")
+    def send_test_alert() -> dict[str, Any]:
+        if test_alert is None:
+            raise HTTPException(status_code=503, detail="test alerts are not available")
+        test_alert()
+        return {"sent": True}
 
     @app.get("/api/events")
     def events(limit: int = Query(100, ge=1, le=1000)) -> list[dict[str, Any]]:
@@ -226,11 +255,15 @@ def start_dashboard(
     cfg: SentinelConfig,
     eventlog: EventLog,
     status: Callable[[], dict[str, Any]] = default_status,
+    profile: ProfileStore | None = None,
+    test_alert: Callable[[], None] | None = None,
 ) -> tuple[Hub, DashboardServer]:
     """Create the hub and app, start serving, and return both."""
     hub = Hub()
     server = DashboardServer(
-        create_app(eventlog, hub, status), cfg.dashboard.host, cfg.dashboard.port
+        create_app(eventlog, hub, status, profile=profile, test_alert=test_alert),
+        cfg.dashboard.host,
+        cfg.dashboard.port,
     )
     server.start()
     return hub, server

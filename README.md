@@ -12,7 +12,7 @@ Built for the Worn smart glasses hackathon (Nov 20 to 21, 2026). The core runs a
 
 ![Kiosk mode: full-screen glasses simulator with a stats strip](docs/img/kiosk.png)
 
-For judges: [`docs/ONE_PAGER.md`](docs/ONE_PAGER.md) is a one-page summary with the claims that are verified and the numbers still to fill in.
+Event plan, scoring map and stage script: [`docs/EVENT_PLAN.md`](docs/EVENT_PLAN.md). For judges: [`docs/ONE_PAGER.md`](docs/ONE_PAGER.md) is a one-page summary with the claims that are verified and the numbers still to fill in.
 
 ## How it works
 
@@ -106,6 +106,16 @@ Then open http://127.0.0.1:8765/. You get:
 - **RECORDING badge:** shown whenever the source is a recording or synthetic scenario instead of the live microphone.
 
 Latency on the page is software latency (up to the moment the display call returns). True end-to-end latency to visible photons needs hardware, see `tools/latency_probe.py`.
+
+## Phone view (phone-to-glasses handoff)
+
+Open `http://<laptop-ip>:8765/phone` on a phone on the same network. Start the tool with `--lan` so the laptop accepts connections from the network (it prints the address; there is no password, so use your own hotspot or a trusted network):
+
+```bash
+python tools/demo.py --lan
+```
+
+The phone page shows the same alert as the glasses with vibration, a big acknowledge button, recent events, and a **For you** profile: switch each sound on or off and set the sensitivity. Changes apply immediately and are saved to `data/profile.json`. **Send a test alert to the glasses** pushes a clearly labeled alert through the real display path, which is the quickest way to check the chain on event day.
 
 ## Start demo mode
 

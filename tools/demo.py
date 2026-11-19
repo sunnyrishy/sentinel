@@ -106,6 +106,11 @@ def main(argv: list[str] | None = None) -> int:
         help="require 3 of 3 classifier windows to reduce false alerts",
     )
     parser.add_argument("--no-classifier", action="store_true", help="gate only, no model needed")
+    parser.add_argument(
+        "--lan",
+        action="store_true",
+        help="let phones on the same network open the page (no password)",
+    )
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
     parser.add_argument(
         "--no-kiosk", action="store_true", help="open the full dashboard, not kiosk"
@@ -155,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
 
         runtime = start_runtime(
             cfg, label, "console,sim", args.db, use_dashboard=True,
-            extra_status={"mode": "demo", "strict": args.strict, "input": desc},
+            extra_status={"mode": "demo", "strict": args.strict, "input": desc}, lan=args.lan,
         )  # fmt: skip
     except (ConfigError, RuntimeError, NotImplementedError, OSError) as err:
         print(err, file=sys.stderr)
@@ -173,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
         f"Input:      {desc}",
         f"Classifier: {classifier_text}",
         f"Page:       {page}",
+        *[f"Phone:      {u}" for u in runtime.phone_urls],
         "Offline:    no network calls",
         "Assistive alert, not a certified safety device.",
     ]  # fmt: skip

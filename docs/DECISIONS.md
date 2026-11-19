@@ -157,3 +157,12 @@ The risk register asks for a demo-mode toggle to cut false alerts from speech an
 
 ## D45. Threads and signals (Nov 13)
 Tools install a SIGINT handler only on the main thread, so they can also be driven from a test or another program.
+
+## D46. Phone companion and profile (Nov 19)
+After the organizers published the scoring rubric (Understands you, Adaptability, Ergonomics, Works on the glasses, Impact), I added a phone page (`/phone`), a per-person profile and a test-alert button. They need no SDK facts. The profile has two settings only: which of the three sounds are enabled, and a sensitivity from 0.5 to 1.5. A disabled sound produces no alert and no event. Sensitivity divides the gate's peak-to-median threshold and every classifier threshold, so higher catches more. The profile is saved to `data/profile.json` (gitignored); an unreadable file is ignored. It is not part of the config hash.
+
+## D47. LAN access (Nov 19)
+`--lan` makes the dashboard listen on all interfaces so a phone can open `/phone`. It has no authentication, so it is off by default and the tools print a reminder. Use your own hotspot. `/api/test-alert` and `/api/profile` are unauthenticated for the same reason.
+
+## D48. Test alert (Nov 19)
+`POST /api/test-alert` shows an alert with event id `e_test` through the real display adapter and clears it after 3 s. It writes nothing to the event log.

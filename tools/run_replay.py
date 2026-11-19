@@ -81,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="serve the dashboard and simulator, replay in real time, keep serving",
     )
+    parser.add_argument(
+        "--lan",
+        action="store_true",
+        help="let phones on the same network open the page (no password)",
+    )
     parser.add_argument("--no-dashboard", action="store_true", help="never start the dashboard")
     args = parser.parse_args(argv)
 
@@ -104,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
             display_name = (display_name or cfg.display.adapter) + ",sim"
         runtime = start_runtime(
             cfg, source_label, display_name, args.db,
-            serve=args.serve, use_dashboard=not args.no_dashboard,
+            serve=args.serve, use_dashboard=not args.no_dashboard, lan=args.lan,
         )  # fmt: skip
         stage = None if args.no_classifier else build_classifier_stage(cfg.classifier)
     except (ConfigError, RuntimeError, NotImplementedError) as err:
@@ -118,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Pipeline run ({mode}, source tagged '{source_label}'):")
     if runtime.url:
         print(f"Dashboard and simulator: {runtime.url}")
+        for u in runtime.phone_urls:
+            print(f"Phone view (same network, no password): {u}")
     before = runtime.eventlog.count()
     pipeline = Pipeline(
         cfg,
